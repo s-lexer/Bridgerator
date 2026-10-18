@@ -12,12 +12,15 @@ import { createPolicy } from './policy.mjs';
 
 const RECONNECT_MS = 5000;
 const DC_ENTRY = createRequire(import.meta.url).resolve('@wonderwhy-er/desktop-commander/dist/index.js');
+const ISOLATE = new URL('./dc-isolate.mjs', import.meta.url).href;
 
 export async function startDesktopCommander(cfg, log = console.log) {
+  if (!cfg.dcConfigDir) throw new Error('dcConfigDir missing');
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [DC_ENTRY],
-    env: { ...process.env, DC_TELEMETRY_ENABLED: 'false' },
+    // Own Desktop Commander config (dc-isolate.mjs): a DC the user runs elsewhere keeps its limits.
+    args: ['--import', ISOLATE, DC_ENTRY],
+    env: { ...process.env, DC_TELEMETRY_ENABLED: 'false', BRIDGERATOR_DC_CONFIG_DIR: cfg.dcConfigDir },
     stderr: 'ignore',
   });
   const client = new Client({ name: 'bridgerator', version: '1.0.0' }, { capabilities: {} });

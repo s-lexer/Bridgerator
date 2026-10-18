@@ -1,6 +1,6 @@
-// Manual end-to-end check against the REAL bundled Desktop Commander (not run by `npm test`):
+// End-to-end check against the REAL bundled Desktop Commander (also part of `npm test`):
 //   node test/e2e-local.mjs
-// Uses a throw-away USERPROFILE so an existing Desktop Commander config on this PC is untouched.
+// Proves isolation: a Desktop Commander config the user already has must stay byte-identical.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,10 +15,11 @@ fs.mkdirSync(prof);
 fs.writeFileSync(path.join(work, 'notes.txt'), 'needle in notes\n');
 fs.writeFileSync(path.join(secret, 'deep', 'pw.txt'), 'needle password\n');
 fs.symlinkSync(secret, path.join(work, 'shortcut'), 'junction');
-process.env.USERPROFILE = prof; process.env.HOME = prof;
+const userDc = path.join(os.homedir(), '.claude-server-commander', 'config.json');
+const before = fs.existsSync(userDc) ? fs.readFileSync(userDc, 'utf8') : null;
 
 const { startDesktopCommander } = await import('../src/bridge.mjs');
-const dc = await startDesktopCommander({ allowedDirectories: [work], deniedDirectories: [secret] }, () => {});
+const dc = await startDesktopCommander({ allowedDirectories: [work], deniedDirectories: [secret], dcConfigDir: path.join(prof, 'dc') }, () => {});
 const text = (r) => (r.content || []).map((c) => c.text).join('\n');
 try {
   assert.ok(!dc.tools.some((t) => t.name === 'set_config_value'), 'set_config_value must be hidden');
@@ -28,7 +29,7 @@ try {
   assert.match(text(await dc.call('read_file', { path: path.join(work, 'notes.txt') })), /needle in notes/);
   assert.match(text(await dc.call('read_file', { path: path.join(secret, 'deep', 'pw.txt') })), /excluded/);
   assert.match(text(await dc.call('read_file', { path: path.join(work, 'shortcut', 'deep', 'pw.txt') })), /excluded/);
-  assert.match(text(await dc.call('read_file', { path: path.join(root, 'profile', 'x') })), /not allowed/i);
+  assert.match(text(await dc.call('read_file', { path: path.join(root, 'outside.txt') })), /not allowed/i);
 
   const list = text(await dc.call('list_directory', { path: work, depth: 3 }));
   console.log('--- list_directory ---\n' + list);
@@ -45,6 +46,8 @@ try {
 
   assert.match(text(await dc.call('start_process', { command: `Get-Content "${path.join(secret, 'deep', 'pw.txt')}"`, timeout_ms: 5000 })), /excluded/);
   assert.match(text(await dc.call('set_config_value', { key: 'allowedDirectories', value: [] })), /disabled/);
+  assert.ok(fs.existsSync(path.join(prof, 'dc', 'config.json')), 'bridge DC config written to its own folder');
+  assert.equal(fs.existsSync(userDc) ? fs.readFileSync(userDc, 'utf8') : null, before, 'user Desktop Commander config must be untouched');
   console.log('E2E OK');
 } finally {
   await dc.close();

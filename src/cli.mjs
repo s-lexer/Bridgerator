@@ -59,9 +59,10 @@ function stopRunning() {
   try { execFileSync('powershell', ['-NoProfile', '-Command', ps], { stdio: 'pipe' }); } catch { /* none running */ }
 }
 
+// Start through the scheduled task itself — same as at logon, and not a child of this console
+// (closing the installer window or a job object around it must not kill the bridge).
 function startHidden() {
-  const vbs = path.join(DIR, 'run-hidden.vbs');
-  if (process.platform === 'win32' && fs.existsSync(vbs)) spawn('wscript.exe', [vbs], { detached: true, stdio: 'ignore' }).unref();
+  if (process.platform === 'win32') execFileSync('schtasks', ['/Run', '/TN', TASK], { stdio: 'pipe' });
   else spawn(process.execPath, [SELF, 'run'], { detached: true, stdio: 'ignore' }).unref();
 }
 
@@ -82,12 +83,6 @@ async function main() {
     };
     fs.mkdirSync(DIR, { recursive: true });
     fs.writeFileSync(CONFIG, JSON.stringify(cfg, null, 2));
-    // Desktop Commander keeps ONE config per Windows user; ours overwrites its folder limits on start.
-    const dcCfg = path.join(home, '.claude-server-commander', 'config.json');
-    if (fs.existsSync(dcCfg) && !fs.existsSync(`${dcCfg}.before-bridgerator`)) {
-      fs.copyFileSync(dcCfg, `${dcCfg}.before-bridgerator`);
-      console.log(`backup of your existing Desktop Commander config: ${dcCfg}.before-bridgerator`);
-    }
     console.log(`config: ${CONFIG}`);
     console.log(`allowed:  ${cfg.allowedDirectories.join(', ')}`);
     console.log(`excluded: ${cfg.deniedDirectories.join(', ') || '-'}`);
@@ -101,7 +96,7 @@ async function main() {
   if (cmd === 'run') {
     const cfg = readConfig();
     if (!cfg) throw new Error(`no config at ${CONFIG} — run: bridgerator setup --token <device key>`);
-    const dc = await startDesktopCommander(cfg, log);
+    const dc = await startDesktopCommander({ ...cfg, dcConfigDir: path.join(DIR, 'dc') }, log);
     connect(cfg, dc, log);
     return;
   }

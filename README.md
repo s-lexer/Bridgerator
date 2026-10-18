@@ -10,7 +10,12 @@ ChatGPT ──OAuth 2.1 + MCP (HTTPS)──► relay (bridgerator.recondeck.com)
 
 This repository is the part that runs on your PC. It is small on purpose so you (or an AI agent
 installing it for you) can read all of it: `src/bridge.mjs` (forwarder), `src/policy.mjs` (access
-rules), `src/cli.mjs` (setup/autostart), `install.ps1` (installer).
+rules), `src/dc-isolate.mjs` (separate Desktop Commander config), `src/cli.mjs` (setup/autostart), `install.ps1` (installer).
+
+## Plans
+
+Free: 15,000 tool calls per month per account, any number of PCs. Pro: $15/month, unlimited.
+Details: https://bridgerator.recondeck.com/#pricing
 
 ## Install (Windows)
 
@@ -49,6 +54,8 @@ but that is a courtesy, not a boundary. If folder limits must be strict, add the
 
 The bridge runs as **your** Windows user (hidden scheduled task at logon), never as SYSTEM.
 
+Bridgerator gives its bundled Desktop Commander its **own** config folder (`%APPDATA%\Bridgerator\dc`, see `src/dc-isolate.mjs`): if you already use Desktop Commander with Claude or another app, its settings and folder limits are not touched. Desktop Commander keeps a local log of recent tool calls in that folder; it never leaves your PC.
+
 ## Commands
 
 ```
@@ -67,8 +74,8 @@ Policy: https://bridgerator.recondeck.com/privacy
 
 ## Development
 
-`npm test` — policy unit tests. `node test/e2e-local.mjs` — end-to-end against the real bundled
-Desktop Commander (uses a throw-away profile, your own Desktop Commander config is untouched).
+`npm test` — policy unit tests plus an end-to-end run against the real bundled Desktop Commander
+(throw-away folders; asserts that your own Desktop Commander config stays byte-identical).
 
 ## Credits
 
