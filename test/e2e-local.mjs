@@ -36,7 +36,7 @@ try {
   assert.match(w.result.contents[0].text, /<html|<!doctype/i);
   assert.equal((await dc.readResource('file:///etc/passwd')).error, 'unknown resource');
   // No trace of the bundled engine's brand or site in anything the user/assistant sees.
-  assert.doesNotMatch(JSON.stringify(dc.tools), /Desktop Commander|desktopcommander\.app/);
+  assert.doesNotMatch(JSON.stringify(dc.tools), /Desktop ?Commander|"DC: |desktopcommander\.app/);
   assert.doesNotMatch(JSON.stringify(dc.resources), /Desktop Commander/);
   assert.doesNotMatch(w.result.contents[0].text, /Desktop Commander|desktopcommander\.app/);
   // Desktop Commander's default command blocklist stays in force (we don't replace it).

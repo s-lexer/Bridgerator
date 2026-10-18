@@ -38,6 +38,7 @@ function Install-PortableNode {
     $want = ($sums -split "`n" | Where-Object { $_ -match "\s$name\.zip$" }) -replace '\s.*$', ''
     $got = (Get-FileHash $zip -Algorithm SHA256).Hash
     if (-not $want -or $got -ne $want.Trim().ToUpper()) { throw 'Node.js download failed the checksum check.' }
+    Write-Host 'Node.js checksum OK (SHA256, nodejs.org)'
     Expand-Archive $zip -DestinationPath $tmp -Force
     if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
     New-Item -ItemType Directory -Path (Split-Path $dir) -Force | Out-Null
@@ -52,6 +53,9 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Install-PortableNod
 $major = [int]((& node -v).TrimStart('v').Split('.')[0])
 if ($major -lt 20) { throw "Node.js 20+ required, found $(& node -v). Update from https://nodejs.org" }
 
+# The engine's PDF export brings puppeteer, whose postinstall downloads Chrome (~700 MB);
+# skipped here, PDF export fetches a browser itself the first time it is used.
+$env:PUPPETEER_SKIP_DOWNLOAD = '1'
 Write-Host "Installing bridgerator from $Package ..."
 & npm install -g $Package --no-audit --no-fund --loglevel=error
 if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
