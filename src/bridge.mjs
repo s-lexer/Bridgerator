@@ -39,7 +39,7 @@ export async function startDesktopCommander(cfg, log = console.log) {
   // MCP Apps widgets (file preview, config view) — served to ChatGPT through the relay as-is.
   const resources = (await client.listResources().catch(() => ({ resources: [] }))).resources || [];
   const resourceUris = new Set(resources.map((r) => r.uri));
-  log(`[bridgerator] Desktop Commander up: ${visible.length} tools; allowed=${JSON.stringify(cfg.allowedDirectories || [])} excluded=${JSON.stringify(cfg.deniedDirectories || [])}`);
+  log(`[bridgerator] engine up: ${visible.length} tools; allowed=${JSON.stringify(cfg.allowedDirectories || [])} excluded=${JSON.stringify(cfg.deniedDirectories || [])}`);
   if (!(cfg.allowedDirectories || []).length) log('[bridgerator] WARNING: allowedDirectories is empty — file tools can reach the whole disk');
 
   async function call(name, args) {

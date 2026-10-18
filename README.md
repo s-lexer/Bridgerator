@@ -5,12 +5,12 @@ PowerShell commands on **your** computer — through a bridge that only makes an
 connection. No inbound ports, no remote-desktop software.
 
 ```
-ChatGPT ──OAuth 2.1 + MCP (HTTPS)──► relay (bridgerator.recondeck.com) ──WebSocket──► bridgerator on your PC ──stdio──► Desktop Commander
+ChatGPT ──OAuth 2.1 + MCP (HTTPS)──► relay (bridgerator.recondeck.com) ──WebSocket──► bridgerator on your PC ──stdio──► bundled MCP engine
 ```
 
 This repository is the part that runs on your PC. It is small on purpose so you (or an AI agent
 installing it for you) can read all of it: `src/bridge.mjs` (forwarder), `src/policy.mjs` (access
-rules), `src/dc-isolate.mjs` (separate Desktop Commander config), `src/cli.mjs` (setup/autostart), `install.ps1` (installer).
+rules), `src/dc-isolate.mjs` (separate engine config), `src/cli.mjs` (setup/autostart), `install.ps1` (installer).
 
 ## Plans
 
@@ -37,12 +37,12 @@ Config: `%APPDATA%\Bridgerator\config.json` (written by `setup`, edit and restar
 
 | Key | Meaning | Default |
 |---|---|---|
-| `allowedDirectories` | File tools work only inside these folders (enforced by Desktop Commander). Empty = whole disk. | your user folder |
+| `allowedDirectories` | File tools work only inside these folders (enforced by the engine). Empty = whole disk. | your user folder |
 | `deniedDirectories` | Folders excluded **inside** the allowed ones (enforced by Bridgerator, see below). | `~\.ssh`, `~\AppData` |
-| `blockedCommands` | Commands Desktop Commander refuses to run. Leave it out to keep Desktop Commander's own list. | Desktop Commander default (`format`, `diskpart`, `reg`, `net`, `sc`, `runas`, `netsh`, `takeown`, …) |
+| `blockedCommands` | Commands the engine refuses to run. Leave it out to keep the built-in list. | built-in list (`format`, `diskpart`, `reg`, `net`, `sc`, `runas`, `netsh`, `takeown`, …) |
 | `disabledTools` | Tools never shown to the assistant, e.g. `["start_process","interact_with_process"]` to turn the terminal off. | none |
 
-Same tools as the original Desktop Commander plugin, including its ChatGPT widgets (file preview,
+Full file, search and terminal toolset, including ChatGPT widgets (file preview,
 config view). Hidden: `set_config_value` (would let the assistant change its own limits), feedback and
 usage-stats tools.
 
@@ -58,7 +58,7 @@ but that is a courtesy, not a boundary. If folder limits must be strict, add the
 
 The bridge runs as **your** Windows user (hidden scheduled task at logon), never as SYSTEM.
 
-Bridgerator gives its bundled Desktop Commander its **own** config folder (`%APPDATA%\Bridgerator\dc`, see `src/dc-isolate.mjs`): if you already use Desktop Commander with Claude or another app, its settings and folder limits are not touched. Desktop Commander keeps a local log of recent tool calls in that folder; it never leaves your PC.
+Bridgerator gives its bundled engine its **own** config folder (`%APPDATA%\Bridgerator\dc`, see `src/dc-isolate.mjs`): if you already run the same open-source MCP server for Claude or another app, its settings and folder limits are not touched. The engine keeps a local log of recent tool calls in that folder; it never leaves your PC.
 
 ## Commands
 
@@ -73,19 +73,18 @@ Log: `%APPDATA%\Bridgerator\bridge.log`. Stopping the bridge cuts access immedia
 ## Privacy
 
 File contents and command output go to ChatGPT (OpenAI) as tool results; the relay forwards them
-in memory and does not store them. Desktop Commander telemetry is turned off by the bridge.
+in memory and does not store them. Engine telemetry, remote feature flags and any browser pop-ups are turned off by the bridge.
 Policy: https://bridgerator.recondeck.com/privacy
 
 ## Development
 
-`npm test` — policy unit tests plus an end-to-end run against the real bundled Desktop Commander
-(throw-away folders; asserts that your own Desktop Commander config stays byte-identical).
+`npm test` — policy unit tests plus an end-to-end run against the real bundled engine
+(throw-away folders; asserts that an existing config of the same engine stays byte-identical).
 
-## Credits
+## License
 
-Bundles [Desktop Commander](https://github.com/wonderwhy-er/DesktopCommanderMCP) by Eduard Ruzga
-(MIT) unchanged as a dependency. Bridgerator is not affiliated with OpenAI, Microsoft or the
-Desktop Commander authors.
+MIT. The bundled open-source MCP engine is MIT-licensed as well; its copyright notice is kept in
+`LICENSE` and the dependency is listed in `package.json`.
 
 ---
 
@@ -93,5 +92,5 @@ Desktop Commander authors.
 Bridgerator подключает ваш ПК к ChatGPT: файлы, поиск, терминал. Мост только исходящий, входящих
 портов нет. Установка — одна строка PowerShell с ключом устройства из кабинета (см. выше).
 Разрешённые папки — `allowedDirectories`, исключения внутри них — `deniedDirectories`
-(исключения обеспечивает Bridgerator, Desktop Commander их не умеет). Терминал папками не
+(исключения обеспечивает сам Bridgerator). Терминал папками не
 ограничивается — для строгих границ выключите его через `disabledTools`.
