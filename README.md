@@ -39,8 +39,12 @@ Config: `%APPDATA%\Bridgerator\config.json` (written by `setup`, edit and restar
 |---|---|---|
 | `allowedDirectories` | File tools work only inside these folders (enforced by Desktop Commander). Empty = whole disk. | your user folder |
 | `deniedDirectories` | Folders excluded **inside** the allowed ones (enforced by Bridgerator, see below). | `~\.ssh`, `~\AppData` |
-| `blockedCommands` | Commands Desktop Commander refuses to run. | `format`, `diskpart`, `bcdedit`, `shutdown`, `reg delete`, `vssadmin delete` |
+| `blockedCommands` | Commands Desktop Commander refuses to run. Leave it out to keep Desktop Commander's own list. | Desktop Commander default (`format`, `diskpart`, `reg`, `net`, `sc`, `runas`, `netsh`, `takeown`, …) |
 | `disabledTools` | Tools never shown to the assistant, e.g. `["start_process","interact_with_process"]` to turn the terminal off. | none |
+
+Same tools as the original Desktop Commander plugin, including its ChatGPT widgets (file preview,
+config view). Hidden: `set_config_value` (would let the assistant change its own limits), feedback and
+usage-stats tools.
 
 How exclusions work (`src/policy.mjs`): every path argument is resolved (symlinks and junctions
 included) and refused if it lies inside an excluded folder; result lines that mention an excluded

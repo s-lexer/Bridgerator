@@ -78,7 +78,8 @@ async function main() {
       token,
       allowedDirectories: o.allow || prev.allowedDirectories || [home],
       deniedDirectories: o.deny || prev.deniedDirectories || [path.join(home, '.ssh'), path.join(home, 'AppData')],
-      blockedCommands: prev.blockedCommands || ['format', 'diskpart', 'bcdedit', 'shutdown', 'reg delete', 'vssadmin delete'],
+      // blockedCommands: absent = Desktop Commander's own default list (format, diskpart, reg, net, sc, runas, …).
+      ...(prev.blockedCommands ? { blockedCommands: prev.blockedCommands } : {}),
       disabledTools: prev.disabledTools || [],
     };
     fs.mkdirSync(DIR, { recursive: true });

@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import WebSocket from 'ws';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { createPolicy } from './policy.mjs';
+import { createPolicy, debrand } from './policy.mjs';
 
 const RECONNECT_MS = 5000;
 const DC_ENTRY = createRequire(import.meta.url).resolve('@wonderwhy-er/desktop-commander/dist/index.js');
@@ -20,7 +20,9 @@ export async function startDesktopCommander(cfg, log = console.log) {
     command: process.execPath,
     // Own Desktop Commander config (dc-isolate.mjs): a DC the user runs elsewhere keeps its limits.
     args: ['--import', ISOLATE, DC_ENTRY],
-    env: { ...process.env, DC_TELEMETRY_ENABLED: 'false', BRIDGERATOR_DC_CONFIG_DIR: cfg.dcConfigDir },
+    // No calls home: telemetry kill-switch, and remote feature flags (onboarding page, promo text
+    // injected into tool results, A/B tests) replaced by an empty local set.
+    env: { ...process.env, DC_TELEMETRY_ENABLED: 'false', DESKTOP_COMMANDER_DISABLE_TELEMETRY: '1', DC_FLAG_URL: 'data:application/json,{"flags":{}}', BRIDGERATOR_DC_CONFIG_DIR: cfg.dcConfigDir },
     stderr: 'ignore',
   });
   const client = new Client({ name: 'bridgerator', version: '1.0.0' }, { capabilities: {} });
@@ -33,7 +35,10 @@ export async function startDesktopCommander(cfg, log = console.log) {
   await set('telemetryEnabled', false);
   const policy = createPolicy(cfg);
   const { tools } = await client.listTools();
-  const visible = tools.filter(policy.visible);
+  const visible = tools.filter(policy.visible).map(debrand);
+  // MCP Apps widgets (file preview, config view) — served to ChatGPT through the relay as-is.
+  const resources = (await client.listResources().catch(() => ({ resources: [] }))).resources || [];
+  const resourceUris = new Set(resources.map((r) => r.uri));
   log(`[bridgerator] Desktop Commander up: ${visible.length} tools; allowed=${JSON.stringify(cfg.allowedDirectories || [])} excluded=${JSON.stringify(cfg.deniedDirectories || [])}`);
   if (!(cfg.allowedDirectories || []).length) log('[bridgerator] WARNING: allowedDirectories is empty — file tools can reach the whole disk');
 
@@ -41,12 +46,17 @@ export async function startDesktopCommander(cfg, log = console.log) {
     const refusal = policy.check(name, args);
     if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true };
     try {
+      // Results are NOT debranded: they carry the user's own file contents verbatim.
       return policy.filter(await client.callTool({ name, arguments: args || {} }), name, args);
     } catch (e) {
       return { content: [{ type: 'text', text: `bridge error: ${e?.message || e}` }], isError: true };
     }
   }
-  return { client, tools: visible, call, close: () => client.close() };
+  async function readResource(uri) {
+    if (!resourceUris.has(uri)) return { error: 'unknown resource' };
+    try { return { result: debrand(await client.readResource({ uri })) }; } catch (e) { return { error: String(e?.message || e) }; }
+  }
+  return { client, tools: visible, resources, call, readResource, close: () => client.close() };
 }
 
 export function connect(cfg, dc, log = console.log) {
@@ -54,12 +64,17 @@ export function connect(cfg, dc, log = console.log) {
   let alive = false;
   ws.on('open', () => {
     alive = true;
-    ws.send(JSON.stringify({ type: 'hello', token: cfg.token, tools: dc.tools }));
+    ws.send(JSON.stringify({ type: 'hello', token: cfg.token, tools: dc.tools, resources: dc.resources }));
     log('[bridgerator] linked to relay, waiting for calls');
   });
   ws.on('message', async (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === 'welcome') { log(`[bridgerator] registered as "${msg.device}"`); return; }
+    if (msg.type === 'read_resource' && msg.callId) {
+      const r = await dc.readResource(msg.uri);
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'result', callId: msg.callId, ...r }));
+      return;
+    }
     if (msg.type !== 'call' || !msg.callId) return;
     const result = await dc.call(msg.name, msg.args || {});
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'result', callId: msg.callId, result }));

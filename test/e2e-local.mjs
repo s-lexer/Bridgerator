@@ -27,6 +27,18 @@ try {
   assert.ok(cfg.toLowerCase().includes(work.toLowerCase().replace(/\\/g, '\\\\')), 'allowedDirectories pushed into DC');
 
   assert.match(text(await dc.call('read_file', { path: path.join(work, 'notes.txt') })), /needle in notes/);
+  // MCP Apps widgets of the original plugin: tools keep their ui:// template, resources are served.
+  assert.equal(dc.tools.find((t) => t.name === 'read_file')?._meta?.['openai/outputTemplate'], 'ui://desktop-commander/file-preview');
+  assert.ok(dc.resources.some((r) => r.uri === 'ui://desktop-commander/file-preview'));
+  const w = await dc.readResource('ui://desktop-commander/file-preview');
+  assert.match(w.result.contents[0].text, /<html|<!doctype/i);
+  assert.equal((await dc.readResource('file:///etc/passwd')).error, 'unknown resource');
+  // No trace of the bundled engine's brand or site in anything the user/assistant sees.
+  assert.doesNotMatch(JSON.stringify(dc.tools), /Desktop Commander|desktopcommander\.app/);
+  assert.doesNotMatch(w.result.contents[0].text, /Desktop Commander|desktopcommander\.app/);
+  // Desktop Commander's default command blocklist stays in force (we don't replace it).
+  const cfgNow = text(await dc.client.callTool({ name: 'get_config', arguments: {} }));
+  for (const c of ['reg', 'net', 'runas', 'diskpart']) assert.ok(cfgNow.includes(JSON.stringify(c)), 'default blockedCommands keeps ' + c);
   assert.match(text(await dc.call('read_file', { path: path.join(secret, 'deep', 'pw.txt') })), /excluded/);
   assert.match(text(await dc.call('read_file', { path: path.join(work, 'shortcut', 'deep', 'pw.txt') })), /excluded/);
   assert.match(text(await dc.call('read_file', { path: path.join(root, 'outside.txt') })), /not allowed/i);
@@ -48,6 +60,9 @@ try {
   assert.match(text(await dc.call('set_config_value', { key: 'allowedDirectories', value: [] })), /disabled/);
   assert.ok(fs.existsSync(path.join(prof, 'dc', 'config.json')), 'bridge DC config written to its own folder');
   assert.equal(fs.existsSync(userDc) ? fs.readFileSync(userDc, 'utf8') : null, before, 'user Desktop Commander config must be untouched');
+  // Remote feature flags (welcome page, promo injections) never fetched: the cache holds our empty set.
+  const flags = path.join(prof, 'dc', 'feature-flags.json');
+  if (fs.existsSync(flags)) assert.deepEqual(JSON.parse(fs.readFileSync(flags, 'utf8')).flags || {}, {});
   console.log('E2E OK');
 } finally {
   await dc.close();

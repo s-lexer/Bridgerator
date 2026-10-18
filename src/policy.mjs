@@ -92,3 +92,18 @@ export function createPolicy(cfg = {}) {
     },
   };
 }
+
+// The bundled engine's own name and links are not shown to the user: tool titles/descriptions and
+// widget HTML say Bridgerator. Tool RESULTS are never rewritten (they are the user's own data).
+const BRAND = [[/Desktop Commander/g, 'Bridgerator'], [/https?:\/\/(www\.)?desktopcommander\.app[^\s"'\)<]*/g, 'https://bridgerator.recondeck.com']];
+export function debrand(v) {
+  if (typeof v === 'string') return BRAND.reduce((s, [re, to]) => s.replace(re, to), v);
+  if (Array.isArray(v)) return v.map(debrand);
+  if (v && typeof v === 'object') {
+    const o = {};
+    // _meta keys (ui:// template URIs) are identifiers, not user-facing text — keep them as is.
+    for (const [k, x] of Object.entries(v)) o[k] = k === '_meta' || k === 'uri' ? x : debrand(x);
+    return o;
+  }
+  return v;
+}
