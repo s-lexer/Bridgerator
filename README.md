@@ -5,7 +5,7 @@ PowerShell commands on **your** computer — through a bridge that only makes an
 connection. No inbound ports, no remote-desktop software.
 
 ```
-ChatGPT ──OAuth 2.1 + MCP (HTTPS)──► relay (bridgerator.recondeck.com) ──WebSocket──► bridgerator on your PC ──stdio──► bundled MCP engine
+ChatGPT ──OAuth 2.1 + MCP (HTTPS)──► relay (mcp.bridgerator.recondeck.com) ──WebSocket──► bridgerator on your PC ──stdio──► bundled MCP engine
 ```
 
 This repository is the part that runs on your PC. It is small on purpose so you (or an AI agent
@@ -15,7 +15,7 @@ rules), `src/dc-isolate.mjs` (separate engine config), `src/cli.mjs` (setup/auto
 ## Plans
 
 Free: 15,000 tool calls per month per account, any number of PCs. Pro: $15/month, unlimited.
-Details: https://bridgerator.recondeck.com/#pricing
+Details: https://bridgerator.recondeck.com/pricing
 
 ## Install (Windows)
 
@@ -27,7 +27,7 @@ Details: https://bridgerator.recondeck.com/#pricing
    It installs Node.js LTS if missing (winget), installs this package and runs `bridgerator setup`.
    Prefer to read first? Download `install.ps1`, read it, run it with `-Token`.
 3. In ChatGPT: Settings → Apps & Connectors → Advanced → Developer mode → Create → URL
-   `https://bridgerator.recondeck.com/mcp`, authentication OAuth, sign in with your account.
+   `https://mcp.bridgerator.recondeck.com/mcp`, authentication OAuth, sign in with your account.
 
 Manual install: `npm install -g github:s-lexer/bridgerator` then `bridgerator setup --token <key>`.
 

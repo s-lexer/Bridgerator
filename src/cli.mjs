@@ -8,7 +8,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDesktopCommander, connect } from './bridge.mjs';
 
-const DEFAULT_RELAY = 'wss://bridgerator.recondeck.com/link';
+const DEFAULT_RELAY = 'wss://mcp.bridgerator.recondeck.com/link';
 const TASK = 'Bridgerator';
 const home = os.homedir();
 const DIR = process.env.BRIDGERATOR_HOME || path.join(process.env.APPDATA || path.join(home, '.config'), 'Bridgerator');
@@ -102,7 +102,7 @@ async function main() {
     stopRunning();
     startHidden();
     console.log(`started in background — log: ${LOG}`);
-    console.log('Next: in ChatGPT add the connector https://bridgerator.recondeck.com/mcp and sign in.');
+    console.log('Next: in ChatGPT add the connector https://mcp.bridgerator.recondeck.com/mcp and sign in.');
     return;
   }
   if (cmd === 'run') {
