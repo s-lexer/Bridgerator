@@ -48,7 +48,18 @@ function installAutostart() {
   const vbs = path.join(DIR, 'run-hidden.vbs');
   const cmd = `"${process.execPath}" "${SELF}" run`;
   fs.writeFileSync(vbs, `CreateObject("WScript.Shell").Run "${cmd.replace(/"/g, '""')}", 0, False\r\n`);
-  execFileSync('schtasks', ['/Create', '/F', '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TN', TASK, '/TR', `wscript.exe "${vbs}"`], { stdio: 'pipe' });
+  // Registered through PowerShell's ScheduledTasks module: `schtasks /Create … wscript.exe …` spawned
+  // from node is refused (EPERM) on clean Windows 11. No 72 h execution limit (the task default
+  // would silently stop the bridge after three days); restart on failure.
+  const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
+  const ps = [
+    `$a = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ${q(`"${vbs}"`)}`,
+    '$t = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\\$env:USERNAME"',
+    '$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew',
+    '$p = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType Interactive -RunLevel Limited',
+    `Register-ScheduledTask -TaskName ${q(TASK)} -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null`,
+  ].join('; ');
+  execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(ps, 'utf16le').toString('base64')], { stdio: 'pipe' });
   return vbs;
 }
 

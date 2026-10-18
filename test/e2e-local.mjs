@@ -17,6 +17,8 @@ fs.writeFileSync(path.join(secret, 'deep', 'pw.txt'), 'needle password\n');
 fs.symlinkSync(secret, path.join(work, 'shortcut'), 'junction');
 const userDc = path.join(os.homedir(), '.claude-server-commander', 'config.json');
 const before = fs.existsSync(userDc) ? fs.readFileSync(userDc, 'utf8') : null;
+const userHist = path.join(os.homedir(), '.claude-server-commander', 'tool-history.jsonl');
+const histBefore = fs.existsSync(userHist) ? fs.statSync(userHist).size : -1;
 
 const { startDesktopCommander } = await import('../src/bridge.mjs');
 const dc = await startDesktopCommander({ allowedDirectories: [work], deniedDirectories: [secret], dcConfigDir: path.join(prof, 'dc') }, () => {});
@@ -35,6 +37,7 @@ try {
   assert.equal((await dc.readResource('file:///etc/passwd')).error, 'unknown resource');
   // No trace of the bundled engine's brand or site in anything the user/assistant sees.
   assert.doesNotMatch(JSON.stringify(dc.tools), /Desktop Commander|desktopcommander\.app/);
+  assert.doesNotMatch(JSON.stringify(dc.resources), /Desktop Commander/);
   assert.doesNotMatch(w.result.contents[0].text, /Desktop Commander|desktopcommander\.app/);
   // Desktop Commander's default command blocklist stays in force (we don't replace it).
   const cfgNow = text(await dc.client.callTool({ name: 'get_config', arguments: {} }));
@@ -60,9 +63,14 @@ try {
   assert.match(text(await dc.call('set_config_value', { key: 'allowedDirectories', value: [] })), /disabled/);
   assert.ok(fs.existsSync(path.join(prof, 'dc', 'config.json')), 'bridge DC config written to its own folder');
   assert.equal(fs.existsSync(userDc) ? fs.readFileSync(userDc, 'utf8') : null, before, 'user Desktop Commander config must be untouched');
+  assert.equal(fs.existsSync(userHist) ? fs.statSync(userHist).size : -1, histBefore, 'user engine tool history untouched');
   // Remote feature flags (welcome page, promo injections) never fetched: the cache holds our empty set.
   const flags = path.join(prof, 'dc', 'feature-flags.json');
   if (fs.existsSync(flags)) assert.deepEqual(JSON.parse(fs.readFileSync(flags, 'utf8')).flags || {}, {});
+  // Nothing written to the shared engine folder; no Chrome pre-download.
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.ok(fs.existsSync(path.join(prof, 'dc', 'tool-history.jsonl')), 'tool history lives in our folder');
+  assert.ok(!fs.existsSync(path.join(prof, 'dc', 'puppeteer-cache')), 'no Chrome pre-download');
   console.log('E2E OK');
 } finally {
   await dc.close();
