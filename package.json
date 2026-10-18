@@ -4,13 +4,30 @@
   "description": "Connect your Windows PC to ChatGPT: files, search and terminal through an outbound-only bridge. Bundles Desktop Commander and adds folder exclusions.",
   "license": "MIT",
   "type": "module",
-  "bin": { "bridgerator": "src/cli.mjs" },
-  "files": ["src", "install.ps1", "README.md", "LICENSE"],
-  "engines": { "node": ">=20" },
-  "scripts": { "start": "node src/cli.mjs run", "test": "node --test" },
+  "bin": {
+    "bridgerator": "src/cli.mjs"
+  },
+  "files": [
+    "src",
+    "install.ps1",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/cli.mjs run",
+    "test": "node --test"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@wonderwhy-er/desktop-commander": "0.2.52",
     "ws": "^8.20.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/s-lexer/bridgerator.git"
+  },
+  "homepage": "https://bridgerator.recondeck.com"
 }

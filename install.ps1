@@ -1,4 +1,4 @@
-# Bridgerator installer for Windows (PowerShell 5.1+). Source: https://github.com/recondeck/bridgerator
+# Bridgerator installer for Windows (PowerShell 5.1+). Source: https://github.com/s-lexer/bridgerator
 # Usage (one line, from your Bridgerator account page):
 #   & ([scriptblock]::Create((irm https://bridgerator.recondeck.com/install.ps1))) -Token <device key>
 # What it does: installs Node.js LTS if missing (winget), installs the bridgerator npm package,

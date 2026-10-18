@@ -29,7 +29,7 @@ Details: https://bridgerator.recondeck.com/#pricing
 3. In ChatGPT: Settings → Apps & Connectors → Advanced → Developer mode → Create → URL
    `https://bridgerator.recondeck.com/mcp`, authentication OAuth, sign in with your account.
 
-Manual install: `npm install -g github:recondeck/bridgerator` then `bridgerator setup --token <key>`.
+Manual install: `npm install -g github:s-lexer/bridgerator` then `bridgerator setup --token <key>`.
 
 ## Access rules — what the assistant can and cannot touch
 
