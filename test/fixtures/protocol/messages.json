@@ -1,0 +1,95 @@
+{
+  "_about": "WebSocket contract bridge <-> relay (/link). Shared by the bridge tests (test/protocol.test.mjs, test/bridge-link.test.mjs) and the relay tests. Values are copied from the producers: bridge src/bridge.mjs (connect and the call path), relay src/hub.js. '<token>' / '<callId>' are replaced by the test. Old shapes = what bridges/relays in the field still send (git history). Never put real keys here.",
+  "bridgeToRelay": {
+    "hello": {
+      "type": "hello",
+      "token": "<token>",
+      "tools": [
+        {
+          "name": "read_file",
+          "description": "Read the complete contents of a file from the file system.",
+          "inputSchema": { "type": "object", "properties": { "path": { "type": "string" }, "isUrl": { "type": "boolean", "default": false } }, "required": ["path"] },
+          "annotations": { "title": "Read File or URL", "readOnlyHint": true, "openWorldHint": true },
+          "_meta": { "openai/outputTemplate": "ui://desktop-commander/file-preview" }
+        },
+        {
+          "name": "write_file",
+          "description": "Write or append to file contents.\nOther chats may be working on this PC at the same time; re-read a file right before editing it.",
+          "inputSchema": { "type": "object", "properties": { "path": { "type": "string" }, "content": { "type": "string" }, "mode": { "type": "string", "enum": ["rewrite", "append"], "default": "rewrite" } }, "required": ["path", "content"] },
+          "annotations": { "title": "Write File", "readOnlyHint": false, "destructiveHint": true }
+        },
+        { "name": "request_confirm_off", "description": "Ask the person at this PC to turn off the confirmation window for risky actions. Only the person can approve it, in a window on the PC; returns approved or declined.", "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false } },
+        { "name": "queue_next", "description": "Take the next item of the task queue.", "inputSchema": { "type": "object", "additionalProperties": false, "properties": { "worker": { "type": "string", "maxLength": 80 } } } }
+      ],
+      "resources": [
+        { "uri": "ui://desktop-commander/file-preview", "name": "File preview", "mimeType": "text/html;profile=mcp-app" },
+        { "uri": "ui://desktop-commander/config-editor", "name": "Config view", "mimeType": "text/html;profile=mcp-app" }
+      ],
+      "confirm": "off",
+      "readOnly": ["D:\\Архив 2025", "C:\\Users\\Иван Петров\\Документы\\Счета"],
+      "setupDone": false,
+      "queue": { "todo": 2, "doing": 1 },
+      "paused": false
+    },
+    "hello_1_0_0": { "type": "hello", "token": "<token>", "tools": [{ "name": "read_file", "description": "Read a file", "inputSchema": { "type": "object" } }, { "name": "list_directory", "inputSchema": { "type": "object" } }] },
+    "hello_1_0_2": { "type": "hello", "token": "<token>", "tools": [{ "name": "read_file", "inputSchema": { "type": "object" } }, { "name": "start_process", "inputSchema": { "type": "object" } }], "resources": [{ "uri": "ui://desktop-commander/file-preview" }, { "uri": "ui://desktop-commander/config-editor" }] },
+    "mode": { "type": "mode", "confirm": "on", "readOnly": ["D:\\Архив 2025"], "setupDone": true, "queue": { "todo": 5, "doing": 2 }, "paused": true },
+    "mode_partial": { "type": "mode", "paused": false },
+    "result_ok": { "type": "result", "callId": "<callId>", "result": { "content": [{ "type": "text", "text": "Привет из C:\\Users\\Иван Петров\\заметки.txt" }] } },
+    "result_busy": { "type": "result", "callId": "<callId>", "result": { "content": [{ "type": "text", "text": "This PC is busy with other chats — try again in a moment." }], "isError": true, "busy": true } },
+    "result_paused": { "type": "result", "callId": "<callId>", "result": { "content": [{ "type": "text", "text": "Bridgerator is paused on this PC. Ask the person to resume it (tray icon → Resume)." }], "isError": true, "paused": true } },
+    "result_notConfirmed": { "type": "result", "callId": "<callId>", "result": { "content": [{ "type": "text", "text": "The person at this PC did not allow this action (denied or no answer in 120 s). Ask them, or try something else." }], "isError": true, "notConfirmed": true } },
+    "result_refused": { "type": "result", "callId": "<callId>", "result": { "content": [{ "type": "text", "text": "Access denied by Bridgerator: \"C:\\Users\\Иван Петров\\.ssh\\id_rsa\" is inside an excluded folder." }], "isError": true, "refused": true } },
+    "result_bridge_error": { "type": "result", "callId": "<callId>", "result": { "content": [{ "type": "text", "text": "bridge error: engine call failed" }], "isError": true } },
+    "result_resource": { "type": "result", "callId": "<callId>", "result": { "contents": [{ "uri": "ui://desktop-commander/file-preview", "mimeType": "text/html;profile=mcp-app", "text": "<!doctype html><html><body>preview</body></html>" }] } },
+    "result_resource_error": { "type": "result", "callId": "<callId>", "error": "unknown resource" }
+  },
+  "relayToBridge": {
+    "welcome": { "type": "welcome", "device": "HOME-PC", "email": "ann@example.com" },
+    "welcome_old": { "type": "welcome", "device": "HOME-PC" },
+    "welcome_with_plan": { "type": "welcome", "device": "Ноутбук Ивана", "email": "ivan@example.com", "plan": { "plan": "free", "calls": 8123, "limit": 10000, "month": "2026-10", "renewUrl": "https://bridgerator.recondeck.com/app/billing?from=pc" } },
+    "plan_free": { "type": "plan", "plan": "free", "calls": 8123, "limit": 10000, "month": "2026-10", "renewUrl": "https://bridgerator.recondeck.com/app/billing?from=pc" },
+    "plan_pro": { "type": "plan", "plan": "pro", "until": "2026-11-02T10:00:00.000Z", "calls": 15000, "limit": null, "month": "2026-10", "renewUrl": "https://bridgerator.recondeck.com/app/billing?from=pc" },
+    "call": { "type": "call", "callId": "1760960000000-k3j2h1g0", "name": "read_file", "args": { "path": "C:\\Users\\Иван Петров\\Документы\\заметки.txt" } },
+    "call_no_args": { "type": "call", "callId": "1760960000001-a1b2c3d4", "name": "list_sessions" },
+    "read_resource": { "type": "read_resource", "callId": "1760960000002-z9y8x7w6", "uri": "ui://desktop-commander/file-preview" },
+    "notice_limit": { "type": "notice", "kind": "limit", "calls": 10000, "limit": 10000 },
+    "notice_expiring": { "type": "notice", "kind": "expiring", "until": "2026-11-02T10:00:00.000Z" },
+    "notice_expired": { "type": "notice", "kind": "expired" },
+    "notice_rename_failed": { "type": "notice", "kind": "rename_failed", "reason": "taken" }
+  },
+  "invalid": {
+    "toRelay": [
+      { "why": "not JSON", "raw": "hello?" },
+      { "why": "JSON but not an object", "raw": "[1,2,3]", "close": 4002 },
+      { "why": "a call before hello", "msg": { "type": "result", "callId": "x", "result": {} }, "close": 4002 },
+      { "why": "unknown device key", "msg": { "type": "hello", "token": "not-a-real-key", "tools": [] }, "close": 4003 },
+      { "why": "hello without a key", "msg": { "type": "hello", "tools": [] }, "close": 4003 }
+    ],
+    "toRelayAfterHello": [
+      { "why": "result for an unknown call", "msg": { "type": "result", "callId": "no-such-call", "result": { "content": [] } } },
+      { "why": "result without callId", "msg": { "type": "result", "result": { "content": [] } } },
+      { "why": "mode with junk values", "msg": { "type": "mode", "confirm": "maybe", "readOnly": "C:\\", "queue": [1], "paused": "yes", "setupDone": 1 } },
+      { "why": "unknown type", "msg": { "type": "format_c" } },
+      { "why": "not JSON", "raw": "{\"type\":" }
+    ],
+    "toBridge": [
+      { "why": "not JSON", "raw": "\u0000\u0001" },
+      { "why": "unknown type", "msg": { "type": "exec", "cmd": "format C:" } },
+      { "why": "call without callId", "msg": { "type": "call", "name": "read_file", "args": {} } },
+      { "why": "call with a non-string name", "msg": { "type": "call", "callId": "c1", "name": ["read_file"], "args": {} } },
+      { "why": "read_resource without callId", "msg": { "type": "read_resource", "uri": "ui://desktop-commander/file-preview" } },
+      { "why": "welcome with a huge e-mail", "msg": { "type": "welcome", "device": "PC", "email": "<300 chars>" } },
+      { "why": "notice of an unknown kind", "msg": { "type": "notice", "kind": "$(calc)" } },
+      { "why": "plan with a foreign pay link and junk numbers", "msg": { "type": "plan", "plan": "gold", "calls": -5, "limit": "∞", "month": "next", "renewUrl": "https://evil.example/pay" } }
+    ]
+  },
+  "closeCodes": {
+    "1009": "relay: hello too big / bridge: message over 4 MB (maxPayload) — reconnect",
+    "4001": "relay: no hello within 10 s",
+    "4002": "relay: bad message / hello first",
+    "4003": "relay: unknown or removed device key — the bridge exits 0 and does not restart",
+    "4004": "relay: another bridge with this key took the link — the bridge backs off 1, 2, 4 … 30 min",
+    "4005": "relay: computer removed in the account (kick)"
+  }
+}

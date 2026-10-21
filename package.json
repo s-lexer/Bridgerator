@@ -1,7 +1,7 @@
 {
   "name": "bridgerator",
-  "version": "1.0.0",
-  "description": "Connect your Windows PC to ChatGPT: files, search and terminal through an outbound-only bridge. Bundles Desktop Commander and adds folder exclusions.",
+  "version": "1.1.1",
+  "description": "Connect ChatGPT to your Windows PC: files, search and terminal through an outbound-only bridge with folder limits. No inbound ports, no admin rights.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -9,25 +9,47 @@
   },
   "files": [
     "src",
+    "vendor",
+    "assets",
+    "ui",
+    "recipes",
     "install.ps1",
+    "npm-shrinkwrap.json",
     "README.md",
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node src/cli.mjs run",
-    "test": "node --test"
+    "test": "node --test \"test/*.test.mjs\" test/e2e-local.mjs",
+    "test:stress": "node --test \"test/stress/*.test.mjs\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@wonderwhy-er/desktop-commander": "0.2.52",
     "ws": "^8.20.0"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/s-lexer/bridgerator.git"
+  "homepage": "https://bridgerator.recondeck.com",
+  "keywords": [
+    "chatgpt",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "windows",
+    "chatgpt-connector",
+    "ai-assistant",
+    "remote-files",
+    "powershell",
+    "openai",
+    "apps-sdk",
+    "desktop-automation",
+    "local-files",
+    "bridge"
+  ],
+  "bugs": {
+    "url": "https://bridgerator.recondeck.com/support"
   },
-  "homepage": "https://bridgerator.recondeck.com"
+  "author": "Bridgerator <info@recondeck.com>"
 }

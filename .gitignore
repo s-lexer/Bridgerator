@@ -2,3 +2,5 @@ node_modules/
 *.tgz
 *.log
 .codegraph/
+dist/
+Screenshot_*.jpg

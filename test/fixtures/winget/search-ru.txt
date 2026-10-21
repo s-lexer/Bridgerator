@@ -1,0 +1,5 @@
+   -    \ Имя                     ИД               Версия     Совпадение    Источник
+---------------------------------------------------------------------------
+7-Zip                   7zip.7zip        26.04      Moniker: 7zip winget
+NanaZip                 M2Team.NanaZip   7.0.1843.0 Tag: 7zip     winget
+Архиватор «Пример» Про… Primer.Arhivator 1.2        Tag: 7zip     winget

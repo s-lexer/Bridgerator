@@ -1,0 +1,48 @@
+{
+  "id": "clean-downloads",
+  "title": { "en": "Clean up old downloads", "ru": "Очистка старых загрузок" },
+  "description": {
+    "en": "Moves files older than N days from a folder (Downloads by default) to the Recycle Bin, so they can be restored. Hidden and system files are kept. A file that can't go to the Recycle Bin (network drive, too big) is kept and listed. DryRun = true only lists what would go.",
+    "ru": "Перемещает файлы старше N дней из папки (по умолчанию «Загрузки») в Корзину — их можно восстановить. Скрытые и системные файлы не трогаются. Файл, который нельзя положить в Корзину (сетевой диск, слишком большой), остаётся и попадает в список. DryRun = true только показывает, что будет перемещено."
+  },
+  "params": [
+    { "name": "Folder", "type": "path", "default": "%USERPROFILE%\\Downloads", "access": "write", "mustExist": true, "description": { "en": "Folder to clean", "ru": "Какую папку чистить" } },
+    { "name": "Days", "type": "int", "default": 30, "min": 1, "max": 3650, "description": { "en": "Files not changed for this many days", "ru": "Файлы, не менявшиеся столько дней" } },
+    { "name": "Subfolders", "type": "bool", "default": false, "description": { "en": "Also look inside subfolders", "ru": "Смотреть и во вложенных папках" } },
+    { "name": "DryRun", "type": "bool", "default": false, "description": { "en": "Only list, move nothing", "ru": "Только показать, ничего не перемещать" } }
+  ],
+  "schedule": { "type": "weekly", "days": ["mon"], "time": "10:00" },
+  "script": [
+    "$cut = (Get-Date).AddDays(-$P.Days)",
+    "$skipAttr = [IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System",
+    "# Own walk: junctions / symbolic links are never followed (they may lead into other folders).",
+    "$reparse = [IO.FileAttributes]::ReparsePoint",
+    "$files = New-Object System.Collections.Generic.List[object]",
+    "$stack = New-Object System.Collections.Generic.Stack[string]",
+    "$stack.Push($P.Folder)",
+    "while ($stack.Count) {",
+    "  foreach ($c in @(Get-ChildItem -LiteralPath $stack.Pop() -ErrorAction SilentlyContinue)) {",
+    "    if ($c.Attributes -band $reparse) { continue }",
+    "    if ($c.PSIsContainer) { if ($P.Subfolders) { $stack.Push($c.FullName) }; continue }",
+    "    if ($c.LastWriteTime -lt $cut -and $c.CreationTime -lt $cut -and -not ($c.Attributes -band $skipAttr)) { $files.Add($c) }",
+    "  }",
+    "}",
+    "$mb = [math]::Round(([double](($files | Measure-Object Length -Sum).Sum)) / 1MB, 1)",
+    "if ($P.DryRun) {",
+    "  $files | Select-Object -First 50 | ForEach-Object { Write-Output (\"would go to the Recycle Bin: \" + $_.FullName) }",
+    "  Write-Output (\"Dry run: \" + $files.Count + \" files, \" + $mb + \" MB older than \" + $P.Days + \" days. Nothing was moved.\")",
+    "  exit 0",
+    "}",
+    "#RECYCLE#",
+    "$ok = 0; $kept = 0; $err = 0",
+    "foreach ($f in $files) {",
+    "  $r = [BrRecycle]::One($f.FullName)",
+    "  if ($r -eq 'recycled') { $ok++ }",
+    "  elseif ($r -eq 'nobin') { $kept++; Write-Output (\"kept (can't go to the Recycle Bin): \" + $f.FullName) }",
+    "  elseif ($r -ne 'missing') { $err++; Write-Output (\"error \" + $r + \": \" + $f.FullName) }",
+    "}",
+    "Write-Output (\"Moved to the Recycle Bin: \" + $ok + \" files (\" + $mb + \" MB found); kept: \" + $kept + \"; errors: \" + $err)",
+    "if ($err) { exit 1 }",
+    "exit 0"
+  ]
+}

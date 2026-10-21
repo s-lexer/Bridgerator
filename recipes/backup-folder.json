@@ -1,0 +1,31 @@
+{
+  "id": "backup-folder",
+  "title": { "en": "Back up a folder", "ru": "Резервная копия папки" },
+  "description": {
+    "en": "Copies a folder to another place (another disk, a USB drive, a cloud folder) with robocopy. Only new and changed files are copied. Mirror = true also removes files from the copy that are gone from the original; it is refused when the Destination already holds files that this backup did not make.",
+    "ru": "Копирует папку в другое место (другой диск, флешку, облачную папку) через robocopy. Копируются только новые и изменённые файлы. Mirror = true также удаляет из копии файлы, которых больше нет в оригинале; не выполняется, если в папке назначения уже есть файлы, сделанные не этой копией."
+  },
+  "params": [
+    { "name": "Source", "type": "path", "required": true, "access": "read", "mustExist": true, "description": { "en": "Folder to back up", "ru": "Папка, которую копировать" } },
+    { "name": "Destination", "type": "path", "required": true, "access": "write", "notInside": "Source", "description": { "en": "Where the copy goes (created if missing)", "ru": "Куда класть копию (создаётся, если нет)" } },
+    { "name": "Mirror", "type": "bool", "default": false, "description": { "en": "Also remove files from the copy that were deleted in the original", "ru": "Удалять из копии файлы, удалённые в оригинале" } }
+  ],
+  "schedule": { "type": "daily", "time": "21:00" },
+  "script": [
+    "$rc = [IO.Path]::Combine($env:SystemRoot, 'System32', 'robocopy.exe')",
+    "$mark = Join-Path $P.Destination '.mirror-backup'",
+    "# Mirror deletes for good whatever the copy has and the original has not: only into an empty / new folder or one this backup made.",
+    "# A freshly formatted drive root holds only these system folders: they don't count, and robocopy leaves them alone.",
+    "$sys = @('System Volume Information', '$RECYCLE.BIN')",
+    "if ($P.Mirror -and (Test-Path -LiteralPath $P.Destination) -and -not (Test-Path -LiteralPath $mark) -and @(Get-ChildItem -LiteralPath $P.Destination -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin $sys } | Select-Object -First 1).Count) { Write-Output 'Mirror refused: the Destination folder already holds files that this backup did not make, and Mirror would delete them for good. Choose an empty or new Destination folder, or run without Mirror.'; exit 4 }",
+    "# Marked BEFORE the copy: a run that fails half-way (robocopy code 8+) still leaves a folder this backup made.",
+    "if ($P.Mirror -and -not (Test-Path -LiteralPath $mark)) { try { [void][IO.Directory]::CreateDirectory($P.Destination); [IO.File]::WriteAllText($mark, 'Made by a mirror backup. Delete this file to stop mirroring into this folder.') } catch { Write-Output ('note: ' + $_.Exception.Message) } }",
+    "$a = @($P.Source, $P.Destination, '/E', '/R:1', '/W:1', '/XJ', '/FFT', '/NP', '/NFL', '/NDL', '/XF', '.mirror-backup', '/XD') + $sys",
+    "if ($P.Mirror) { $a += '/MIR' }",
+    "& $rc @a",
+    "$code = $LASTEXITCODE",
+    "if ($code -ge 8) { Write-Output (\"Backup failed: robocopy exit code \" + $code); exit $code }",
+    "Write-Output (\"Backup done (robocopy exit code \" + $code + \")\")",
+    "exit 0"
+  ]
+}

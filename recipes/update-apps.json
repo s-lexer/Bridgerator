@@ -1,0 +1,25 @@
+{
+  "id": "update-apps",
+  "title": { "en": "Update apps (winget)", "ru": "Обновление программ (winget)" },
+  "description": {
+    "en": "Uses Windows Package Manager (winget). Mode list = only show which apps have updates; all = update every app winget can update silently. Apps installed for all users may need administrator rights and are then skipped or ask. AcceptAgreements = true only after the person agreed to the program and source license terms.",
+    "ru": "Использует диспетчер пакетов Windows (winget). Mode list — только показать, для каких программ есть обновления; all — обновить все программы, которые winget может обновить тихо. Программы, установленные для всех пользователей, могут требовать прав администратора — тогда они пропускаются или спрашивают. AcceptAgreements = true — только после того, как человек согласился с условиями лицензий программ и источников."
+  },
+  "params": [
+    { "name": "Mode", "type": "enum", "values": ["list", "all"], "default": "list", "description": { "en": "list = show updates, all = install them", "ru": "list — показать обновления, all — установить" } },
+    { "name": "AcceptAgreements", "type": "bool", "default": false, "description": { "en": "Accept the license terms of the programs and the source (only after the person agreed)", "ru": "Принять условия лицензий программ и источника (только после согласия человека)" } }
+  ],
+  "schedule": { "type": "weekly", "days": ["sat"], "time": "11:00" },
+  "script": [
+    "# winget only from App Installer's alias of this user, never from the PATH.",
+    "$winget = [IO.Path]::Combine([Environment]::GetFolderPath('LocalApplicationData'), 'Microsoft', 'WindowsApps', 'winget.exe')",
+    "if (-not (Test-Path -LiteralPath $winget)) { Write-Output 'winget (App Installer) is not available on this PC.'; exit 3 }",
+    "$acc = @()",
+    "if ($P.AcceptAgreements) { $acc = @('--accept-source-agreements'); if ($P.Mode -eq 'all') { $acc += '--accept-package-agreements' } }",
+    "if ($P.Mode -eq 'all') { & $winget upgrade --all --silent @acc --disable-interactivity }",
+    "else { & $winget upgrade @acc --disable-interactivity }",
+    "$code = $LASTEXITCODE",
+    "if ($code -eq -1978335189) { Write-Output 'No updates found.'; exit 0 }",
+    "exit $code"
+  ]
+}

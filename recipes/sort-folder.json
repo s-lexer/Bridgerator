@@ -1,0 +1,49 @@
+{
+  "id": "sort-folder",
+  "title": { "en": "Sort a folder by file type", "ru": "Разбор папки по типам файлов" },
+  "description": {
+    "en": "Moves the files at the top of a folder (Downloads by default) into subfolders by type: Images, Documents, Archives, Video, Music, Installers. Unfinished downloads, hidden files and shortcuts stay. A name that already exists gets \" (2)\". Other = true also moves unknown types into Other. DryRun = true only lists the moves.",
+    "ru": "Раскладывает файлы верхнего уровня папки (по умолчанию «Загрузки») по подпапкам: изображения, документы, архивы, видео, музыка, установщики. Недокачанные, скрытые файлы и ярлыки остаются. При совпадении имени добавляется « (2)». Other = true также переносит неизвестные типы в «Другое». DryRun = true только показывает перемещения."
+  },
+  "params": [
+    { "name": "Folder", "type": "path", "default": "%USERPROFILE%\\Downloads", "access": "write", "mustExist": true, "description": { "en": "Folder to sort", "ru": "Какую папку разобрать" } },
+    { "name": "Language", "type": "enum", "values": ["en", "ru"], "default": "en", "description": { "en": "Language of the subfolder names", "ru": "Язык названий подпапок" } },
+    { "name": "Other", "type": "bool", "default": false, "description": { "en": "Move unknown file types into Other", "ru": "Переносить неизвестные типы в «Другое»" } },
+    { "name": "DryRun", "type": "bool", "default": false, "description": { "en": "Only list, move nothing", "ru": "Только показать, ничего не перемещать" } }
+  ],
+  "schedule": { "type": "daily", "time": "18:00" },
+  "script": [
+    "$names = @{",
+    "  en = @{ img = 'Images'; doc = 'Documents'; arc = 'Archives'; vid = 'Video'; aud = 'Music'; app = 'Installers'; other = 'Other' }",
+    "  ru = @{ img = 'Изображения'; doc = 'Документы'; arc = 'Архивы'; vid = 'Видео'; aud = 'Музыка'; app = 'Установщики'; other = 'Другое' }",
+    "}[$P.Language]",
+    "$map = @{}",
+    "foreach ($e in 'jpg','jpeg','png','gif','bmp','webp','heic','heif','svg','tif','tiff','ico','raw','cr2','nef') { $map[$e] = 'img' }",
+    "foreach ($e in 'pdf','doc','docx','xls','xlsx','ppt','pptx','txt','rtf','odt','ods','odp','csv','md','epub','djvu','fb2') { $map[$e] = 'doc' }",
+    "foreach ($e in 'zip','rar','7z','tar','gz','bz2','xz','iso','cab') { $map[$e] = 'arc' }",
+    "foreach ($e in 'mp4','mkv','avi','mov','wmv','webm','m4v','flv') { $map[$e] = 'vid' }",
+    "foreach ($e in 'mp3','wav','flac','aac','ogg','m4a','wma','opus') { $map[$e] = 'aud' }",
+    "foreach ($e in 'exe','msi','msix','msixbundle','appx','appxbundle') { $map[$e] = 'app' }",
+    "$skip = @('crdownload','part','partial','tmp','download','opdownload','ini','lnk','url')",
+    "$skipAttr = [IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System",
+    "$n = 0; $err = 0",
+    "foreach ($f in @(Get-ChildItem -LiteralPath $P.Folder -File -ErrorAction SilentlyContinue)) {",
+    "  if ($f.Attributes -band $skipAttr) { continue }",
+    "  $ext = $f.Extension.TrimStart('.').ToLower()",
+    "  if ($skip -contains $ext) { continue }",
+    "  $k = $map[$ext]",
+    "  if (-not $k) { if (-not $P.Other) { continue }; $k = 'other' }",
+    "  $to = Join-Path $P.Folder $names[$k]",
+    "  $dest = Join-Path $to $f.Name",
+    "  $i = 2",
+    "  while (Test-Path -LiteralPath $dest) { $dest = Join-Path $to ($f.BaseName + ' (' + $i + ')' + $f.Extension); $i++ }",
+    "  if ($P.DryRun) { Write-Output ('would move: ' + $f.Name + ' -> ' + $names[$k]); $n++; continue }",
+    "  try { [void][IO.Directory]::CreateDirectory($to); Move-Item -LiteralPath $f.FullName -Destination $dest -ErrorAction Stop; $n++ }",
+    "  catch { $err++; Write-Output ('error: ' + $f.Name + ': ' + $_.Exception.Message) }",
+    "}",
+    "if ($P.DryRun) { Write-Output ('Dry run: ' + $n + ' files would be moved. Nothing was moved.'); exit 0 }",
+    "Write-Output ('Sorted: ' + $n + ' files moved; errors: ' + $err)",
+    "if ($err) { exit 1 }",
+    "exit 0"
+  ]
+}

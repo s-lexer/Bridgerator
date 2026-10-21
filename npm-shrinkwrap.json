@@ -1,12 +1,12 @@
 {
   "name": "bridgerator",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "bridgerator",
-      "version": "1.0.0",
+      "version": "1.1.1",
       "license": "MIT",
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0",
@@ -17,7 +17,7 @@
         "bridgerator": "src/cli.mjs"
       },
       "engines": {
-        "node": ">=20"
+        "node": ">=22"
       }
     },
     "node_modules/@borewit/text-codec": {

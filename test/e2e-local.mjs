@@ -7,6 +7,11 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'brg-e2e-'));
+// The test folders live in %TEMP% (inside AppData, which is always excluded): point the built-in
+// excluded folders at a fake profile instead.
+const fakeHome = path.join(root, 'fakehome');
+const realHome = os.homedir();
+Object.assign(process.env, { USERPROFILE: fakeHome, APPDATA: path.join(fakeHome, 'AppData', 'Roaming'), LOCALAPPDATA: path.join(fakeHome, 'AppData', 'Local') });
 const prof = path.join(root, 'profile');
 const work = path.join(root, 'work');
 const secret = path.join(work, 'Secret');
@@ -15,9 +20,9 @@ fs.mkdirSync(prof);
 fs.writeFileSync(path.join(work, 'notes.txt'), 'needle in notes\n');
 fs.writeFileSync(path.join(secret, 'deep', 'pw.txt'), 'needle password\n');
 fs.symlinkSync(secret, path.join(work, 'shortcut'), 'junction');
-const userDc = path.join(os.homedir(), '.claude-server-commander', 'config.json');
+const userDc = path.join(realHome, '.claude-server-commander', 'config.json');
 const before = fs.existsSync(userDc) ? fs.readFileSync(userDc, 'utf8') : null;
-const userHist = path.join(os.homedir(), '.claude-server-commander', 'tool-history.jsonl');
+const userHist = path.join(realHome, '.claude-server-commander', 'tool-history.jsonl');
 const histBefore = fs.existsSync(userHist) ? fs.statSync(userHist).size : -1;
 
 const { startDesktopCommander } = await import('../src/bridge.mjs');
@@ -69,8 +74,29 @@ try {
   if (fs.existsSync(flags)) assert.deepEqual(JSON.parse(fs.readFileSync(flags, 'utf8')).flags || {}, {});
   // Nothing written to the shared engine folder; no Chrome pre-download.
   await new Promise((r) => setTimeout(r, 1500));
-  assert.ok(fs.existsSync(path.join(prof, 'dc', 'tool-history.jsonl')), 'tool history lives in our folder');
+  assert.ok(!fs.existsSync(path.join(prof, 'dc', 'tool-history.jsonl')), 'no on-disk tool history (arguments, output)');
   assert.ok(!fs.existsSync(path.join(prof, 'dc', 'puppeteer-cache')), 'no Chrome pre-download');
+  // The terminal starts in the first allowed folder and sees no Bridgerator variables.
+  const envOut = text(await dc.call('start_process', { command: '(Get-Location).Path; "DC=" + $env:BRIDGERATOR_DC_CONFIG_DIR; "BR=" + (Get-ChildItem env: | Where-Object Name -like "BR*" | ForEach-Object Name)', timeout_ms: 8000 }));
+  assert.ok(envOut.toLowerCase().includes(work.toLowerCase()), `terminal cwd = allowed folder: ${envOut}`);
+  assert.match(envOut, /DC=\s*(\r?\n|$)/); assert.doesNotMatch(envOut, /BRIDGERATOR_/);
+  // Several chats at once: a slow command doesn't hold up the reads of other chats.
+  const t0 = Date.now(), done = {};
+  const mark = (k) => (r) => { done[k] = Date.now() - t0; return r; };
+  const [slow, r1, r2] = await Promise.all([
+    dc.call('start_process', { command: 'Start-Sleep -Seconds 2; "slept"', timeout_ms: 8000 }).then(mark('slow')),
+    dc.call('read_file', { path: path.join(work, 'notes.txt') }).then(mark('r1')),
+    dc.call('read_file', { path: path.join(work, 'notes.txt') }).then(mark('r2')),
+  ]);
+  console.log('--- parallel ---', done);
+  assert.match(text(r1), /needle/); assert.match(text(r2), /needle/); assert.match(text(slow), /slept/);
+  assert.ok(done.r1 < done.slow && done.r2 < done.slow && done.slow >= 1900, 'fast calls finish before the slow one');
+  // Hardening: no PDF export / call-log tools, no URL reads, no UNC; no local log of call arguments.
+  for (const t of ['write_pdf', 'get_recent_tool_calls']) assert.ok(!dc.tools.some((x) => x.name === t), `${t} hidden`);
+  assert.match(text(await dc.call('read_file', { path: 'https://example.com/', isUrl: true })), /URLs/);
+  assert.match(text(await dc.call('list_directory', { path: '\\\\127.0.0.1\\c$' })), /network and device/);
+  assert.ok(!fs.existsSync(path.join(prof, 'dc', 'claude_tool_call.log')), 'no tool-argument log');
+  assert.ok(!fs.existsSync(path.join(fakeHome, '.claude-server-commander-logs')), 'fuzzy-search log not in the home folder');
   console.log('E2E OK');
 } finally {
   await dc.close();

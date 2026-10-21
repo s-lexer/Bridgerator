@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bridgerator</title>
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="titlebar">
+  <svg width="16" height="16" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#2251E6"></rect><path d="M17 42 Q32 12 47 42" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round"></path><circle cx="17" cy="44" r="6.5" fill="#fff"></circle><circle cx="47" cy="44" r="6.5" fill="#7fe0ff"></circle></svg>
+  <span class="name">Bridgerator</span>
+  <div class="grow"></div>
+  <div class="wbtns">
+    <button class="wbtn" id="w-min" data-i18n-aria="closeToTray"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" stroke="currentColor"></path></svg></button>
+  </div>
+</header>
+<div class="layout">
+  <nav class="nav" id="nav" aria-label="Sections" data-i18n-aria="aria.sections"></nav>
+  <main id="main"></main>
+</div>
+<div id="layer"></div>
+</body>
+</html>
