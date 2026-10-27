@@ -1,6 +1,6 @@
 {
   "name": "bridgerator",
-  "version": "1.1.1",
+  "version": "1.1.12",
   "description": "Connect ChatGPT to your Windows PC: files, search and terminal through an outbound-only bridge with folder limits. No inbound ports, no admin rights.",
   "license": "MIT",
   "type": "module",
@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@wonderwhy-er/desktop-commander": "0.2.52",
+    "bridgerator-engine": "npm:@wonderwhy-er/desktop-commander@0.2.52",
     "ws": "^8.20.0"
   },
   "homepage": "https://bridgerator.recondeck.com",

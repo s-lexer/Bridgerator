@@ -87,7 +87,8 @@ test('pairing: a relay that fails or answers oddly never opens the browser; a cr
 // Security review 20.10: the engine child gets no Bridgerator variables and starts in an allowed folder.
 test('engine environment and working folder: no BRIDGERATOR_* / BR_* (any case), no TLS switch-off; cwd = first existing allowed folder', () => {
   const e = engineEnv({ PATH: 'p', BRIDGERATOR_HOME: 'h', br_ui_dir: 'x', Bridgerator_Dc_Config_Dir: 'd', NODE_TLS_REJECT_UNAUTHORIZED: '0', BROWSER: 'b' });
-  assert.deepEqual(e, { PATH: 'p', BROWSER: 'b' });
+  assert.deepEqual(e, { PATH: 'p', BROWSER: 'b', PSExecutionPolicyPreference: 'Bypass' });
+  assert.equal(engineEnv({ psexecutionpolicypreference: 'AllSigned' }).PSExecutionPolicyPreference, undefined, 'the person\'s own value stays');
   const a = path.join(tmp, 'Работа');
   fs.mkdirSync(a);
   assert.equal(engineCwd({ allowedDirectories: [path.join(tmp, 'нет'), a] }, 'C:\\H'), a);

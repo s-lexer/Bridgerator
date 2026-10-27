@@ -4,12 +4,12 @@
 // argv: <config dir> <work dir> → one JSON line.
 import fs from 'node:fs';
 import path from 'node:path';
-import { startDesktopCommander } from './src/bridge.mjs';
+import { startEngine } from './src/bridge.mjs';
 
 const [dir, work] = process.argv.slice(2);
 const text = (r) => (r?.content || []).map((c) => c.text || '').join('\n');
 const out = { execPath: process.execPath };
-const dc = await startDesktopCommander({ allowedDirectories: [work], deniedDirectories: [], readOnlyDirectories: [], protectSensitive: false, dcConfigDir: path.join(dir, 'dc'), configDir: dir }, () => {}, { ask: async () => 'deny' });
+const dc = await startEngine({ allowedDirectories: [work], deniedDirectories: [], readOnlyDirectories: [], protectSensitive: false, dcConfigDir: path.join(dir, 'dc'), configDir: dir }, () => {}, { ask: async () => 'deny' });
 try {
   out.tools = dc.tools.length;
   const f = path.join(work, 'заметка needle.txt');

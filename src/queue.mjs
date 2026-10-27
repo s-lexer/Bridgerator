@@ -9,7 +9,11 @@ export const STATUSES = ['todo', 'doing', 'done', 'failed', 'skipped'];
 const MAX_ITEMS = 500, MAX_TITLE = 200, MAX_DETAILS = 4000, MAX_NOTE = 1000, MAX_PATHS = 20;
 const RULE = 'The usual loop: queue_next, do the task, queue_update with done / failed / skipped and a short note, then the next one until the queue is empty or the person stops. resultPath set: write the result to that file. from set: another AI added it and reads queue_list.';
 const MAX_FROM = 80, MAX_RESULT_PATH = 1000;
-export const STALE_MS = 30 * 60 * 1000;   // "doing" with no update for this long: another chat gave up
+export const STALE_MS = 30 * 60 * 1000;
+export const STALLED_MS = 10 * 60 * 1000; // "doing" + no tool call at all for this long: ChatGPT is likely waiting for the person
+/** "doing" items with no update and no tool call on this PC for `ms` (owner 26.10: ChatGPT's own Allow dialog is invisible on the PC). */
+// ponytail: one PC-wide idle clock — a second chat busy with other calls hides a stalled one; per-chat tracking would need the worker on every call.
+export const stalledItems = (list, { now, idleSince, ms = STALLED_MS }) => (now - idleSince < ms ? [] : list.filter((x) => x.status === 'doing' && now - Date.parse(x.updatedAt) >= ms));   // "doing" with no update for this long: another chat gave up
 const ID = { type: 'string', description: 'item id' };
 const STR = (n) => ({ type: 'string', maxLength: n });
 const PATHS = { type: 'array', maxItems: MAX_PATHS, items: STR(1000) };
@@ -18,9 +22,9 @@ const HANDOFF = { from: { type: 'string', maxLength: MAX_FROM, description: 'Who
 
 export const QUEUE_TOOL_DEFS = [
   { name: 'queue_list', description: `List the task queue the person keeps on this PC (a checklist of things to do): counts and items (id, title, status, note, worker, updatedAt, from, resultPath), optionally only one status.`, inputSchema: { type: 'object', additionalProperties: false, properties: { status: { type: 'string', enum: STATUSES } } } },
-  { name: 'queue_next', description: `Take the next item of the task queue: returns the first "todo" item and marks it "doing" (nothing when the queue is empty). An item left "doing" for 30 minutes without an update (another chat stopped) is returned first, with resumed: true. Several chats can work through one queue at once; each call gets a different item. Pass worker = a short name for this chat (e.g. its title) so the person sees who is on it. ${RULE}`, inputSchema: { type: 'object', additionalProperties: false, properties: { worker: STR(80) } } },
+  { name: 'queue_next', description: `Take the next item of the task queue: returns the first "todo" item and marks it "doing" (nothing when the queue is empty). An item left "doing" for 30 minutes without an update (another chat stopped) is returned first, with resumed: true. Several chats can work through one queue at once; each call gets a different item. Pass worker = a short name for this chat (e.g. its title) so the person sees who is on it. ${RULE}`, inputSchema: { type: 'object', additionalProperties: false, properties: { worker: STR(80), id: { type: 'string', description: 'take this "todo" item instead of the first one' } } } },
   { name: 'queue_update', description: `Set an item's status (doing / done / failed / skipped / todo) with a short result note.`, inputSchema: { type: 'object', additionalProperties: false, required: ['id', 'status'], properties: { id: ID, status: { type: 'string', enum: STATUSES }, note: STR(MAX_NOTE) } } },
-  { name: 'queue_add', description: `Add steps to the task queue (e.g. when planning a bigger job with the person): one { title, details?, paths?, from?, resultPath? } or items: [...] (1–100). Another AI handing work to ChatGPT sets from (its name) and resultPath (a file for the result), then reads the outcome with queue_list.`, inputSchema: { type: 'object', additionalProperties: false, properties: { title: STR(MAX_TITLE), details: STR(MAX_DETAILS), paths: PATHS, ...HANDOFF, items: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', additionalProperties: false, required: ['title'], properties: { title: STR(MAX_TITLE), details: STR(MAX_DETAILS), paths: PATHS, ...HANDOFF } } } } } },
+  { name: 'queue_add', description: `Add steps to the task queue (e.g. when planning a bigger job with the person): one { title, details?, paths?, from?, resultPath? } or items: [...] (1–100). Another AI handing work to ChatGPT sets from (its name) and resultPath (a file for the result), then reads the outcome with queue_list. A step whose title matches an open (todo / doing) item is not added again — the reply names that item; allowDuplicate: true adds it anyway.`, inputSchema: { type: 'object', additionalProperties: false, properties: { title: STR(MAX_TITLE), details: STR(MAX_DETAILS), paths: PATHS, ...HANDOFF, allowDuplicate: { type: 'boolean' }, items: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', additionalProperties: false, required: ['title'], properties: { title: STR(MAX_TITLE), details: STR(MAX_DETAILS), paths: PATHS, ...HANDOFF } } } } } },
   { name: 'queue_clear', description: 'Remove finished items from the task queue: status done, failed or skipped. status "all" removes every item and needs the person\'s OK on the PC.', inputSchema: { type: 'object', additionalProperties: false, properties: { status: { type: 'string', enum: ['done', 'failed', 'skipped', 'all'] } } } },
   { name: 'queue_edit', description: 'Change the title, details, paths or result file of a queue item.', inputSchema: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: ID, title: STR(MAX_TITLE), details: STR(MAX_DETAILS), paths: PATHS, resultPath: HANDOFF.resultPath } } },
   { name: 'queue_reorder', description: 'Put queue items in a new order: ids first, in this order; the rest keep their order after them.', inputSchema: { type: 'object', additionalProperties: false, required: ['ids'], properties: { ids: { type: 'array', maxItems: MAX_ITEMS, items: ID } } } },
@@ -99,11 +103,15 @@ export function createQueue(file, { now = () => new Date().toISOString(), onChan
       items.push(it); save(); return it;
     },
     // Synchronous take: parallel chats calling queue_next never get the same item.
-    next({ worker } = {}) { return commit(() => {
+    // id: that item only (a chat told to take certain tasks), if it is "todo" or stale "doing"; else an error.
+    next({ worker, id } = {}) { return commit(() => {
       const w = str(worker, 80, 'worker');
       const t = Date.parse(now());
-      const stale = sorted().find((x) => x.status === 'doing' && t - Date.parse(x.updatedAt) >= STALE_MS);
-      const it = stale || sorted().find((x) => x.status === 'todo');
+      const isStale = (x) => x.status === 'doing' && t - Date.parse(x.updatedAt) >= STALE_MS;
+      const pick = id === undefined ? null : get(str(id, 40, 'id', true));
+      if (pick && pick.status !== 'todo' && !isStale(pick)) throw new Error(`item ${pick.id} is "${pick.status}", not free to take`);
+      const stale = pick ? (isStale(pick) ? pick : null) : sorted().find(isStale);
+      const it = stale || pick || sorted().find((x) => x.status === 'todo');
       if (!it) return null;
       if (stale) it.resumedFrom = it.worker || 'another chat';
       it.status = 'doing'; it.updatedAt = now();
@@ -182,7 +190,18 @@ export function queueTool(q, name, args = {}) {
       case 'queue_list': return ok({ counts: q.counts(), items: q.list(args.status).map(({ id, title, status, note, worker, updatedAt, details, paths, from, resultPath }) => ({ id, title, status, ...(note ? { note } : {}), ...(worker ? { worker } : {}), updatedAt, ...(details ? { details } : {}), ...(paths ? { paths } : {}), ...(from ? { from } : {}), ...(resultPath ? { resultPath } : {}) })) });
       case 'queue_next': { const it = q.next(args); return ok(it ? { item: it } : { item: null, message: 'The queue is empty — tell the person and stop.' }); }
       case 'queue_update': return ok({ item: q.update(args) });
-      case 'queue_add': return args.items ? ok({ items: q.addMany(args.items) }) : ok({ item: q.add(args) });
+      case 'queue_add': {
+        // A second chat given the same request re-added the whole set (E2E 26.10): an open item with the same
+        // title is skipped and named. Only the AI's tool; the window adds what the person types.
+        const key = (t) => (typeof t === 'string' ? t.trim().toLowerCase() : null);
+        const open = new Map(q.list().filter((x) => x.status === 'todo' || x.status === 'doing').map((x) => [key(x.title), x.id]));
+        const want = Array.isArray(args.items) ? args.items : [args], keep = [], skipped = [];
+        for (const x of want) { const d = args.allowDuplicate === true ? undefined : open.get(key(x?.title)); if (d) skipped.push({ title: x.title, duplicate_of: d }); else keep.push(x); }
+        const why = skipped.length ? { skipped, message: 'Already in the queue (open), not added again: work on those items (queue_list / queue_next), or pass allowDuplicate: true to add them anyway.' } : {};
+        if (!keep.length && skipped.length) return ok({ added: 0, ...why });
+        if (args.items == null) return ok({ item: q.add(args) });
+        return ok({ items: q.addMany(Array.isArray(args.items) ? keep : args.items), ...why });
+      }
       case 'queue_clear': { if (args.status === 'all') throw new Error('clearing every item needs the person\'s OK'); const gone = q.clear({ status: args.status || 'finished' }); return ok({ removed: gone.length, counts: q.counts() }); }
       case 'queue_edit': return ok({ item: q.edit(args) });
       case 'queue_reorder': return ok({ items: q.reorder(args) });

@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { isSea } from 'node:sea';
-import { startDesktopCommander, connect, checkRelay } from './bridge.mjs';
+import { startEngine, connect, checkRelay } from './bridge.mjs';
 import { pair, siteOf, checkKey, machineFp } from './pair.mjs';
 import { ACCOUNT_URL } from './notice.mjs';
 import { send, VERSION } from './telemetry.mjs';
@@ -39,6 +39,8 @@ const INI = path.join(DIR, 'confirm.ini'); // on-PC confirmation settings (confi
 const SNAP_DIR = DIR === path.join(APPDATA, 'Bridgerator') ? path.join(LOCALAPPDATA, 'Bridgerator', 'snapshots') : path.join(DIR, 'snapshots');
 // Automations (scheduled scripts, automations.mjs): inside the always-excluded %LOCALAPPDATA%\Bridgerator.
 const SCRIPTS_DIR = DIR === path.join(APPDATA, 'Bridgerator') ? path.join(LOCALAPPDATA, 'Bridgerator', 'scripts') : path.join(DIR, 'scripts');
+// The window's WebView2 data: a second bridge (--home) gets its own, or its window stays black (one data folder = one browser process).
+const WEBVIEW_DIR = DIR === path.join(APPDATA, 'Bridgerator') ? path.join(LOCALAPPDATA, 'Bridgerator', 'webview') : path.join(DIR, 'webview');
 const SELF = fileURLToPath(import.meta.url);
 const PKG_DIR = path.dirname(path.dirname(SELF)); // …\node_modules\bridgerator
 // Private Node.js the installer puts in when there is none (or < 22) — see install.ps1.
@@ -335,8 +337,11 @@ const defaultDenied = () => [];
 /** The setup summary's "excluded" line: only what really applies (sensitive folders only when that switch is on). */
 export const excludedLine = (cfg) => [...(cfg.deniedDirectories || []), `built-in: Bridgerator's own folders${cfg.protectSensitive ? ', AppData, credentials (.ssh, .aws, …), Startup, PowerShell profiles' : ''}`].join(', ');
 /** 'ru' when the Windows display language or regional format is Russian, else 'en'. */
-export function osLanguage(locales = [Intl.DateTimeFormat().resolvedOptions().locale, process.env.LANG]) {
-  return locales.some((l) => /^ru([-_.]|$)/i.test(String(l || ''))) ? 'ru' : 'en';
+// Node's Intl gives only the regional format: the display language comes from Windows, as in install.ps1.
+const uiCulture = () => { try { return process.platform === 'win32' ? execFileSync(POWERSHELL, psArgs('[Globalization.CultureInfo]::CurrentUICulture.Name'), { stdio: 'pipe', timeout: 15000 }).toString().trim() : ''; } catch { return ''; } };
+export function osLanguage(locales = [Intl.DateTimeFormat().resolvedOptions().locale, process.env.LANG], askWindows = arguments.length === 0) {
+  const ru = (l) => /^ru([-_.]|$)/i.test(String(l || ''));
+  return locales.some(ru) || (askWindows && ru(uiCulture())) ? 'ru' : 'en';
 }
 const keptDenied = (list) => (Array.isArray(list) && !(list.length === 1 && process.env.OneDrive && list[0].toLowerCase() === process.env.OneDrive.toLowerCase()) ? list : []);
 
@@ -393,7 +398,7 @@ async function main() {
       protectSensitive: prev.protectSensitive === true,
       // Readable, never changed by the file tools (the terminal is not bound by folders).
       readOnlyDirectories: o['read-only'] ? abs(o['read-only']) : prev.readOnlyDirectories || [],
-      // blockedCommands: absent = Desktop Commander's own default list (format, diskpart, reg, net, sc, runas, …).
+      // blockedCommands: absent = the engine's own default list (format, diskpart, reg, net, sc, runas, …).
       ...(prev.blockedCommands ? { blockedCommands: prev.blockedCommands } : {}),
       disabledTools: prev.disabledTools || [],
       installId: prev.installId || crypto.randomUUID(),
@@ -447,7 +452,7 @@ async function main() {
       showNotice({ kind: 'offline' }, log); return true;
     });
     const tray = startTray({
-      log, account: accountUrlOf(cfg),
+      log, account: accountUrlOf(cfg), webview: WEBVIEW_DIR,
       onMenu: (a, m) => {
         if (a === 'quit') { log('[bridgerator] quit from the tray (starts again at the next sign-in)'); tray?.close(); process.exit(0); }
         if (a === 'pause') dc?.setPaused(true, m.minutes);
@@ -471,7 +476,7 @@ async function main() {
         plan: b.kind === 'none' ? null : { label: b.action === 'renew' ? 'Renew Pro…' : 'Upgrade to Pro…', url: b.url, badge: b.tone },
       });
     };
-    dc = await startDesktopCommander({ ...cfg, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG, snapshotsDir: SNAP_DIR, scriptsDir: SCRIPTS_DIR }, log, { ask: tray ? (q) => tray.ask(q) : undefined });
+    dc = await startEngine({ ...cfg, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG, snapshotsDir: SNAP_DIR, scriptsDir: SCRIPTS_DIR }, log, { ask: tray ? (q) => tray.ask(q) : undefined });
     dc.cfgName = () => readConfig()?.deviceName;
     dc.openWindow = (page) => tray?.open(page);
     dc.onPlan = pushTray;

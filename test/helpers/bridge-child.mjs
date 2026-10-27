@@ -1,6 +1,6 @@
 // A real bridge in its own process, like `bridgerator.cmd run` on a PC but without the tray helper
 // (no tray icon / windows on the test PC): optional key-less pairing (src/pair.mjs), the real engine
-// (startDesktopCommander) and the real link (connect). Questions on the PC go to the parent test over
+// (startEngine) and the real link (connect). Questions on the PC go to the parent test over
 // IPC; notifications are caught (helpers/no-popups.mjs) and reported. Started by helpers via
 // startBridgeChild(); argv[2] = JSON options file.
 import { shown } from './no-popups.mjs';
@@ -11,7 +11,7 @@ const send = (o) => { try { process.send?.(o); } catch { /* parent gone */ } };
 if (process.argv[2]) {
   const o = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
   const log = (l) => send({ ev: 'log', line: String(l) });
-  const { startDesktopCommander, connect } = await import('../../src/bridge.mjs');
+  const { startEngine, connect } = await import('../../src/bridge.mjs');
   const { pair } = await import('../../src/pair.mjs');
   let token = o.token;
   if (o.pair) {
@@ -27,7 +27,7 @@ if (process.argv[2]) {
   const configFile = path.join(dir, 'config.json');
   if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ relay: o.relay, token, allowedDirectories: o.allowedDirectories || [], deniedDirectories: o.deniedDirectories || [], readOnlyDirectories: o.readOnlyDirectories || [] }, null, 2));
   const cfg = JSON.parse(fs.readFileSync(configFile, 'utf8'));
-  const dc = await startDesktopCommander({ ...cfg, dcConfigDir: path.join(dir, 'dc'), configDir: dir, confirmIni: path.join(dir, 'confirm.ini'), configFile }, log, { ask });
+  const dc = await startEngine({ ...cfg, dcConfigDir: path.join(dir, 'dc'), configDir: dir, confirmIni: path.join(dir, 'confirm.ini'), configFile }, log, { ask });
   dc.onLink = (state, name) => { dc.linkState = state; if (name) dc.linkName = name; send({ ev: 'link', state, name: name || '' }); };
   dc.setPaused = (v) => { dc.paused = v; dc.onMode(dc.mode()); };
   let notified = 0;

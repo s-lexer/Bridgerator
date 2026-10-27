@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createQueue, queueTool, QUEUE_TOOL_DEFS } from '../src/queue.mjs';
+import { createQueue, queueTool, stalledItems, QUEUE_TOOL_DEFS } from '../src/queue.mjs';
+import { noticeText } from '../src/notice.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brg-queue-'));
 let n = 0;
@@ -26,6 +27,19 @@ test('a broken, empty or odd queue.json is an empty queue, never a crash; the ne
 test('limits: 500 items, title / details / note / paths lengths; strict statuses', () => {
   const q = createQueue(file());
   assert.match(queueTool(q, 'queue_add', { title: '   ' }).content[0].text, /title is required/);
+  // A second chat re-adding the same set (E2E 26.10): open items with the same title are skipped and named.
+  const d1 = JSON.parse(queueTool(q, 'queue_add', { items: [{ title: 'Dup A' }, { title: 'Dup B' }] }).content[0].text).items;
+  const d2 = JSON.parse(queueTool(q, 'queue_add', { items: [{ title: ' dup a ' }, { title: 'Dup C' }] }).content[0].text);
+  assert.deepEqual(d2.skipped, [{ title: ' dup a ', duplicate_of: d1[0].id }]);
+  assert.deepEqual(d2.items.map((x) => x.title), ['Dup C']);
+  const d3 = JSON.parse(queueTool(q, 'queue_add', { title: 'Dup B' }).content[0].text);
+  assert.equal(d3.added, 0); assert.equal(d3.skipped[0].duplicate_of, d1[1].id); assert.match(d3.message, /allowDuplicate/);
+  assert.equal(JSON.parse(queueTool(q, 'queue_add', { title: 'Dup B', allowDuplicate: true }).content[0].text).item.title, 'Dup B');
+  assert.equal(JSON.parse(queueTool(q, 'queue_add', { title: 'Dup N', items: null }).content[0].text).item.title, 'Dup N', 'items: null = one step');
+  q.update({ id: d1[0].id, status: 'failed' });
+  assert.equal(JSON.parse(queueTool(q, 'queue_add', { title: 'Dup A' }).content[0].text).item.title, 'Dup A', 'a failed item may be added again');
+  for (const x of q.list()) if (/^dup /i.test(x.title)) q.update({ id: x.id, status: 'done' });
+  q.clear({ status: 'finished' });
   assert.match(queueTool(q, 'queue_add', { title: 'x', details: 'd'.repeat(4001) }).content[0].text, /longer than 4000/);
   assert.match(queueTool(q, 'queue_add', { title: 'x', paths: Array(21).fill('C:\\a') }).content[0].text, /at most 20/);
   assert.match(queueTool(q, 'queue_add', { title: 'x', paths: ['C:\\a', 5] }).content[0].text, /paths must be/);
@@ -171,4 +185,35 @@ test('YB-11: the broken file is copied once per distinct content, not at every s
   assert.equal(copies().length, 2, 'new broken content: one more copy');
   createQueue(g).add({ title: 'x' });
   assert.equal(copies().length, 2);
+});
+
+test('queue_next {id}: takes that free item, refuses a busy / unknown one, a stale one comes back resumed', () => {
+  let t = Date.parse('2026-10-26T10:00:00Z');
+  const q = createQueue(file(), { now: () => new Date(t).toISOString() });
+  const [a, b, c] = ['R1', 'R2', 'R3'].map((title) => q.add({ title }));
+  assert.equal(q.next({ worker: 'w1', id: b.id }).id, b.id);
+  assert.throws(() => q.next({ worker: 'w2', id: b.id }), /"doing", not free/);
+  assert.throws(() => q.next({ id: 'nope' }), /no queue item/);
+  assert.equal(q.next({ worker: 'w2' }).id, a.id, 'without id: the first todo as before');
+  q.update({ id: c.id, status: 'done' });
+  assert.throws(() => q.next({ id: c.id }), /"done"/);
+  t += 31 * 60 * 1000;
+  const r = q.next({ worker: 'w3', id: b.id });
+  assert.equal(r.id, b.id); assert.equal(r.resumed, true); assert.equal(r.resumedFrom, 'w1');
+});
+
+test('stalled: "doing" 10 min without an update AND no call on the PC for 10 min → notice text; otherwise nothing', () => {
+  const t = Date.parse('2026-10-26T10:00:00Z'), min = 60000;
+  const it = (status, ago) => ({ id: status + ago, title: 'R1b', status, updatedAt: new Date(t - ago * min).toISOString() });
+  const list = [it('doing', 11), it('doing', 5), it('todo', 30)];
+  assert.deepEqual(stalledItems(list, { now: t, idleSince: t - 11 * min }).map((x) => x.id), ['doing11']);
+  assert.deepEqual(stalledItems(list, { now: t, idleSince: t - 2 * min }), [], 'a recent call on the PC: not stalled');
+  assert.match(noticeText({ kind: 'settings_changed', by: 'ai', what: ['Allowed folders: +D:\\X'] }).body, /^By the AI: Allowed folders: \+D:\\X\. Turn this notice off/);
+  assert.match(noticeText({ kind: 'settings_changed', by: 'file', what: ['Recycle Bin: off'] }).body, /^In the settings file: /);
+  assert.equal(noticeText({ kind: 'settings_changed', by: 'relay', what: ['x'] }), undefined);
+  assert.match(noticeText({ kind: 'settings_changed', by: 'ai', what: [...Array(9)].map((_, i) => `Setting number ${i}: a fairly long value`) }).body, /· \+\d+ more\. Turn/);
+  assert.equal(noticeText({ kind: 'settings_changed', by: 'ai', what: [] }), undefined);
+  assert.match(noticeText({ kind: 'queue_stalled', title: 'R1b' }).body, /"R1b".*allow an action.*press Retry there or pick another model/);
+  assert.equal(noticeText({ kind: 'queue_stalled', title: '' }), undefined);
+  assert.match(noticeText({ kind: 'queue_stalled', title: 'R1b', more: 2 }).body, /"R1b" and 2 more for 10 minutes/);
 });

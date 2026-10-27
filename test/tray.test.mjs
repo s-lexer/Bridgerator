@@ -262,8 +262,11 @@ test('V-5: startTray passes the linked site\'s account page to the helper (only 
   };
   startTray({ spawn, log: () => {}, account: 'https://staging.bridgerator.recondeck.com/app' }).close();
   startTray({ spawn, log: () => {}, account: "https://evil.example/app'; calc; '" }).close();
+  startTray({ spawn, log: () => {}, webview: 'C:\\T\\webview' }).close();
   assert.equal(envs[0].BR_ACCOUNT, 'https://staging.bridgerator.recondeck.com/app');
   assert.equal(envs[1].BR_ACCOUNT, undefined);
+  assert.equal(envs[0].BR_WEBVIEW, undefined);
+  assert.equal(envs[2].BR_WEBVIEW, 'C:\\T\\webview', 'a second bridge (--home) has its own WebView2 data');
 });
 
 test('V2-5: settings change lines (describe) are Russian on a ru PC — labels and on/off; paths stay', async () => {

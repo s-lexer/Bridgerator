@@ -1,5 +1,5 @@
-// Bridge-side access policy, applied BEFORE a call reaches Desktop Commander and to its results.
-// Desktop Commander itself only knows allowedDirectories; it has no "except these folders" rule,
+// Bridge-side access policy, applied BEFORE a call reaches the engine and to its results.
+// The engine itself only knows allowedDirectories; it has no "except these folders" rule,
 // so deniedDirectories is enforced here: input paths are resolved (symlinks/junctions included)
 // and refused when they fall inside a denied folder; result lines that mention a denied path are
 // dropped (search hits, recursive listings).
@@ -53,7 +53,7 @@ const expandHome = (p) => (p === '~' || p.startsWith('~/') || p.startsWith('~\\'
 // base: the folder a relative path is resolved against (default: this process's cwd).
 export const norm = (p, base) => path.resolve(base || '.', expandHome(String(p))).replace(/[\\/]+$/, '').toLowerCase();
 
-// Resolve symlinks/junctions on the deepest existing ancestor, like Desktop Commander does.
+// Resolve symlinks/junctions on the deepest existing ancestor, like the engine does.
 export function realish(p, base) {
   const start = path.resolve(base || '.', expandHome(String(p)));
   let cur = start;
@@ -149,6 +149,16 @@ export function expandVars(s, env = process.env, home = os.homedir()) {
 
 // cfg.cwd: the folder the ENGINE resolves relative paths against (its working directory): relative
 // arguments are checked where the engine will open them, never against the bridge's own folder.
+// Terminal commands that change or stop Bridgerator itself (its CLI's setting/lifecycle commands, removing the
+// package, ending its processes or autostart task). Read-only uses (doctor, status, --version, a folder name) pass.
+const SELF_CHANGE = [
+  /\bbridgerator(?:\.cmd|\.ps1|\.exe)?["']?\s+(?:confirm|read-only|telemetry|setup|uninstall|stop|run|unlink)\b/i,
+  /\b(?:npm|pnpm|yarn)(?:\.cmd)?\s[^|;&\n]*\b(?:rm|remove|uninstall|un|r|unlink)\s[^|;&\n]*\bbridgerator\b/i,
+  /\b(?:taskkill|tskill|pskill|kill|stop-process|wmic|schtasks|(?:start|stop|disable|enable|unregister|set)-scheduledtask)\b[^|;&\n]*\bbridgerator/i,
+  /\bbridgerator[^;&\n]*\|\s*(?:stop-process|kill|(?:stop|disable|unregister|set)-scheduledtask)\b/i,
+];
+// Tools whose result is the text of files that passed the folder check (shown whole, never filtered).
+const FILE_TEXT = new Set(['read_file', 'read_multiple_files']);
 export function createPolicy(cfg = {}) {
   const base = cfg.cwd || process.cwd();
   // protectSensitive absent = on (callers that don't say); the bridge passes the person's setting.
@@ -223,9 +233,10 @@ export function createPolicy(cfg = {}) {
           const targets = [...new Set([...writeTargets(texts[1]), ...writeTargets(texts[3])])].filter((p) => !/^[\\/]{2}/.test(p));
           if (targets.some((p) => readOnlyFor(p))) return `Access denied by Bridgerator: the ${k} would change a read-only folder — files there can be read, not changed.`;
         }
-        // Courtesy, like the folder check (the terminal itself is not a boundary): anything about
-        // Bridgerator itself — its commands, files, processes — is for the person at the PC.
-        if (texts.some((x) => /\bbridgerator\b/i.test(x))) return 'Commands about Bridgerator itself (its settings, files or processes) can only be run by the person at this PC. Use request_confirm_off to ask for confirmations to be turned off.';
+        // Courtesy, like the folder check (the terminal itself is not a boundary): commands that change or stop
+        // Bridgerator itself are for the person; its files are covered by the folder rule above. Owner 26.10: the AI
+        // sets up everything else — the word alone (a project folder, npm i -g bridgerator, doctor) is fine.
+        if (texts.some((x) => SELF_CHANGE.some((re) => re.test(x)))) return 'This command would change or stop Bridgerator itself. Change its settings with bridgerator_settings (they apply at once); to turn confirmations off use request_confirm_off. Stopping, re-linking or removing Bridgerator is for the person at this PC.';
       }
       return null;
     },
@@ -240,8 +251,10 @@ export function createPolicy(cfg = {}) {
     },
     // Drop result lines that reveal anything inside a denied folder. `args` lets a listing of a
     // parent folder hide the excluded child, whose entries are printed relative to that parent.
+    // Not for the text of a file that was allowed to be read: a line that merely NAMES an excluded folder is the
+    // person's own content (E2E 26.10: .md notes lost lines, a later full rewrite would delete them from disk).
     filter(result, name, args) {
-      if (!denied.length || !result || !Array.isArray(result.content)) return result;
+      if (!denied.length || !result || !Array.isArray(result.content) || FILE_TEXT.has(name)) return result;
       const rel = [];
       if (name === 'list_directory' && typeof args?.path === 'string') {
         const at = norm(realish(args.path, base));
@@ -256,7 +269,7 @@ export function createPolicy(cfg = {}) {
         dropped += lines.length - kept.length;
         return { ...c, text: kept.join('\n') };
       });
-      if (dropped) content.push({ type: 'text', text: `[Bridgerator: ${dropped} line(s) hidden — excluded folder]` });
+      if (dropped) content.push({ type: 'text', text: `[Bridgerator: ${dropped} line(s) naming an excluded folder were left out; everything else above is complete — not an error]` }); // E2E 26.10: "hidden" read as a refusal
       return { ...result, content };
     },
   };
@@ -265,6 +278,11 @@ export function createPolicy(cfg = {}) {
 // The bundled engine's own name and links are not shown to the user: tool titles/descriptions and
 // widget HTML say Bridgerator. Tool RESULTS are never rewritten (they are the user's own data).
 const BRAND = [[/"DC: \.\.\." or /g, ''], [/Desktop ?Commander/g, 'Bridgerator'], [/https?:\/\/(www\.)?desktopcommander\.app[^\s"'\)<]*/g, 'https://bridgerator.recondeck.com']];
+// The engine's widget URIs and their in-page state key carry its name: ChatGPT sees them in tool _meta and resources.
+// Shown as ui://bridgerator/…, mapped back when a resource is read (owner 26.10: "как будто наш код").
+const UI_ENGINE = 'ui://desktop-commander/', UI_OURS = 'ui://bridgerator/';
+export const ourUi = (v) => JSON.parse(JSON.stringify(v).replaceAll(UI_ENGINE, UI_OURS).replaceAll('desktop-commander:widget-state', 'bridgerator:widget-state'));
+export const engineUi = (uri) => String(uri).replace(UI_OURS, UI_ENGINE);
 export function debrand(v) {
   if (typeof v === 'string') return BRAND.reduce((s, [re, to]) => s.replace(re, to), v);
   if (Array.isArray(v)) return v.map(debrand);
@@ -278,7 +296,7 @@ export function debrand(v) {
 }
 
 // Two results are the engine's own text, not user data: the prompt catalog (get_prompts says
-// "Desktop Commander Prompt Categories") and get_config, whose `version` is the engine's and is
+// its own brand in the heading) and get_config, whose `version` is the engine's and is
 // shown as "Bridgerator version" — replaced by the bridge's own version.
 export function debrandResult(name, result, version) {
   if (!result || typeof result !== 'object') return result;

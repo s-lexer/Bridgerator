@@ -1,16 +1,16 @@
 {
   "name": "bridgerator",
-  "version": "1.1.1",
+  "version": "1.1.12",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "bridgerator",
-      "version": "1.1.1",
+      "version": "1.1.12",
       "license": "MIT",
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "@wonderwhy-er/desktop-commander": "0.2.52",
+        "bridgerator-engine": "npm:@wonderwhy-er/desktop-commander@0.2.52",
         "ws": "^8.20.0"
       },
       "bin": {
@@ -1477,69 +1477,6 @@
         "win32"
       ]
     },
-    "node_modules/@wonderwhy-er/desktop-commander": {
-      "version": "0.2.52",
-      "resolved": "https://registry.npmjs.org/@wonderwhy-er/desktop-commander/-/desktop-commander-0.2.52.tgz",
-      "integrity": "sha512-VNeKfaBR6TN/8MlP/ziTpjNEeHrGOFmmzQjrwzr52kQalBJoNNISWwaSQElPFc6+I17NOOM354KbSdS/aDrqGA==",
-      "hasInstallScript": true,
-      "license": "MIT",
-      "dependencies": {
-        "@modelcontextprotocol/sdk": "^1.9.0",
-        "@opendocsg/pdf2md": "^0.2.2",
-        "@supabase/supabase-js": "^2.89.0",
-        "@tiptap/core": "^3.22.3",
-        "@tiptap/extension-image": "^3.22.3",
-        "@tiptap/extension-table": "^3.22.4",
-        "@tiptap/extension-table-cell": "^3.22.4",
-        "@tiptap/extension-table-header": "^3.22.4",
-        "@tiptap/extension-table-row": "^3.22.4",
-        "@tiptap/pm": "^3.22.3",
-        "@tiptap/starter-kit": "^3.22.3",
-        "@vscode/ripgrep": "^1.15.9",
-        "cross-fetch": "^4.1.0",
-        "exceljs": "^4.4.0",
-        "fastest-levenshtein": "^1.0.16",
-        "file-type": "^21.1.1",
-        "glob": "^10.3.10",
-        "highlight.js": "^11.11.1",
-        "isbinaryfile": "^5.0.4",
-        "markdown-it": "^14.1.0",
-        "md-to-pdf": "^5.2.5",
-        "open": "^10.2.0",
-        "pdf-lib": "^1.17.1",
-        "pizzip": "^3.2.0",
-        "proper-lockfile": "^4.1.2",
-        "remark": "^15.0.1",
-        "remark-gfm": "^4.0.1",
-        "remark-parse": "^11.0.0",
-        "sharp": "^0.34.5",
-        "tiptap-markdown": "^0.9.0",
-        "unified": "^11.0.5",
-        "unpdf": "^1.4.0",
-        "zod": "^3.24.1",
-        "zod-to-json-schema": "^3.23.5"
-      },
-      "bin": {
-        "desktop-commander": "dist/index.js",
-        "remove": "dist/uninstall-claude-server.js",
-        "setup": "dist/setup-claude-server.js"
-      },
-      "engines": {
-        "node": ">=18.0.0"
-      },
-      "optionalDependencies": {
-        "caffeinate": "^1.0.1"
-      }
-    },
-    "node_modules/@wonderwhy-er/desktop-commander/node_modules/zod": {
-      "version": "3.25.76",
-      "resolved": "https://registry.npmjs.org/zod/-/zod-3.25.76.tgz",
-      "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==",
-      "license": "MIT",
-      "funding": {
-        "url": "https://github.com/sponsors/colinhacks"
-      }
-    },
     "node_modules/accepts": {
       "version": "2.0.0",
       "resolved": "https://registry.npmjs.org/accepts/-/accepts-2.0.0.tgz",
@@ -1984,6 +1921,70 @@
       },
       "engines": {
         "node": ">=8"
+      }
+    },
+    "node_modules/bridgerator-engine": {
+      "name": "@wonderwhy-er/desktop-commander",
+      "version": "0.2.52",
+      "resolved": "https://registry.npmjs.org/@wonderwhy-er/desktop-commander/-/desktop-commander-0.2.52.tgz",
+      "integrity": "sha512-VNeKfaBR6TN/8MlP/ziTpjNEeHrGOFmmzQjrwzr52kQalBJoNNISWwaSQElPFc6+I17NOOM354KbSdS/aDrqGA==",
+      "hasInstallScript": true,
+      "license": "MIT",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.9.0",
+        "@opendocsg/pdf2md": "^0.2.2",
+        "@supabase/supabase-js": "^2.89.0",
+        "@tiptap/core": "^3.22.3",
+        "@tiptap/extension-image": "^3.22.3",
+        "@tiptap/extension-table": "^3.22.4",
+        "@tiptap/extension-table-cell": "^3.22.4",
+        "@tiptap/extension-table-header": "^3.22.4",
+        "@tiptap/extension-table-row": "^3.22.4",
+        "@tiptap/pm": "^3.22.3",
+        "@tiptap/starter-kit": "^3.22.3",
+        "@vscode/ripgrep": "^1.15.9",
+        "cross-fetch": "^4.1.0",
+        "exceljs": "^4.4.0",
+        "fastest-levenshtein": "^1.0.16",
+        "file-type": "^21.1.1",
+        "glob": "^10.3.10",
+        "highlight.js": "^11.11.1",
+        "isbinaryfile": "^5.0.4",
+        "markdown-it": "^14.1.0",
+        "md-to-pdf": "^5.2.5",
+        "open": "^10.2.0",
+        "pdf-lib": "^1.17.1",
+        "pizzip": "^3.2.0",
+        "proper-lockfile": "^4.1.2",
+        "remark": "^15.0.1",
+        "remark-gfm": "^4.0.1",
+        "remark-parse": "^11.0.0",
+        "sharp": "^0.34.5",
+        "tiptap-markdown": "^0.9.0",
+        "unified": "^11.0.5",
+        "unpdf": "^1.4.0",
+        "zod": "^3.24.1",
+        "zod-to-json-schema": "^3.23.5"
+      },
+      "bin": {
+        "desktop-commander": "dist/index.js",
+        "remove": "dist/uninstall-claude-server.js",
+        "setup": "dist/setup-claude-server.js"
+      },
+      "engines": {
+        "node": ">=18.0.0"
+      },
+      "optionalDependencies": {
+        "caffeinate": "^1.0.1"
+      }
+    },
+    "node_modules/bridgerator-engine/node_modules/zod": {
+      "version": "3.25.76",
+      "resolved": "https://registry.npmjs.org/zod/-/zod-3.25.76.tgz",
+      "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==",
+      "license": "MIT",
+      "funding": {
+        "url": "https://github.com/sponsors/colinhacks"
       }
     },
     "node_modules/buffer": {

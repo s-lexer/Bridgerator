@@ -32,7 +32,7 @@ fs.writeFileSync(path.join(work, 'заметки.txt'), 'иголка в сто�
 fs.writeFileSync(path.join(other, 'b.txt'), 'other folder\n');
 fs.writeFileSync(path.join(ro, 'old.txt'), 'archived\n');
 
-const { startDesktopCommander } = await import('../src/bridge.mjs');
+const { startEngine } = await import('../src/bridge.mjs');
 const { ensureIni, setIni, readSettings, readSettingsStrict } = await import('../src/confirm.mjs');
 const CONFIG = path.join(DIR, 'config.json'), INI = path.join(DIR, 'confirm.ini');
 const base = { askSettings: true, relay: 'wss://relay.invalid/link', token: 't', allowedDirectories: [], deniedDirectories: [], readOnlyDirectories: [ro], telemetryEnabled: false, localHistory: false, setupDone: false };
@@ -48,7 +48,7 @@ const disk = () => [fs.readFileSync(CONFIG, 'utf8'), fs.readFileSync(INI, 'utf8'
 const settings = (s) => dc.call('bridgerator_settings', { action: 'set', settings: s });
 
 before(async () => {
-  dc = await startDesktopCommander({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG }, () => {},
+  dc = await startEngine({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG }, () => {},
     { ask: async (q) => { asked.push(q); return answer; } });
   dc.hooks = { autostart: async (on) => { autostart.push(on); } };
 });

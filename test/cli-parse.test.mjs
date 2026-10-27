@@ -141,7 +141,7 @@ test('setup summary lists only the exclusions that really apply (VM10-4)', () =>
 
 test('first config language from Windows (display language or format); account URL from the config\'s site (VM11-6, VM11-7)', () => {
   assert.equal(osLanguage(['ru-RU']), 'ru'); assert.equal(osLanguage(['en-US', 'ru_RU.UTF-8']), 'ru');
-  assert.equal(osLanguage(['en-US', undefined]), 'en'); assert.equal(osLanguage(['rue']), 'en');
+  assert.equal(osLanguage(['en-US', undefined]), 'en'); assert.equal(osLanguage(['rue']), 'en'); // explicit locales: Windows is not asked
   assert.equal(accountUrlOf({ relay: 'wss://mcp.staging.bridgerator.recondeck.com/link' }), 'https://staging.bridgerator.recondeck.com/app');
   assert.equal(accountUrlOf(null), 'https://bridgerator.recondeck.com/app');
   assert.equal(accountUrlOf({ relay: 'not a url' }), 'https://bridgerator.recondeck.com/app');

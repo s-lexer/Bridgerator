@@ -52,9 +52,12 @@ test('commands: %VAR% (any case), $env:, ${env:}, ~ are expanded before the chec
   denied(p.check('interact_with_process', { pid: 1, input: 'type %APPDATA%\\Bridgerator\\confirm.ini' }));
 });
 
-test('commands about Bridgerator itself, in any case, are for the person at the PC', () => {
-  for (const c of ['echo BridgeRator', 'Get-Process *BRIDGERATOR*', 'schtasks /Run /TN Bridgerator-S-1-5-21', 'npm.cmd rm -g bridgerator', 'Remove-Item "$env:LOCALAPPDATA\\Bridgerator\\node" -Recurse'])
+test('commands that change or stop Bridgerator itself, in any case, are for the person at the PC; the word alone is fine (owner 26.10)', () => {
+  for (const c of ['bridgerator.cmd confirm off', 'BRIDGERATOR read-only remove D:\\x', '& "bridgerator.cmd" setup --allow C:\\', 'bridgerator stop', 'schtasks /Run /TN Bridgerator-S-1-5-21', 'npm.cmd rm -g bridgerator', 'npm uninstall --global bridgerator',
+    'Stop-Process -Name bridgerator', 'Get-Process *bridgerator* | Stop-Process', 'taskkill /im bridgerator.exe /f', 'Disable-ScheduledTask -TaskName Bridgerator-S-1-5', 'Remove-Item "$env:LOCALAPPDATA\\Bridgerator\\node" -Recurse'])
     assert.match(cmd(c), /person at this PC|excluded/, c);
+  for (const c of ['echo BridgeRator', 'Get-Process *BRIDGERATOR*', 'bridgerator.cmd doctor', 'bridgerator.cmd --version', 'npm.cmd i -g bridgerator@next', 'cd D:\\Projects\\bridgerator; git status'])
+    assert.equal(cmd(c), null, c);
   assert.equal(cmd('Get-ChildItem C:\\bridgeratorX'), null, 'a different word is not refused');
 });
 
@@ -94,7 +97,7 @@ test('path arguments at any depth and under any path-like key; too deep / too la
 
 test('quotes and escape characters inside a path do not hide an excluded folder (cmd ^, PowerShell `)', () => {
   for (const c of ['type "%USERPROFILE%"\\.ssh\\id_rsa', "type '%USERPROFILE%'\\.ssh\\id_rsa", 'type %USERPROFILE%\\.^s^s^h\\id_rsa', 'Get-Content $env:USERPROFILE\\.`ssh\\id_rsa',
-    `type "${secret}"\\deep\\пароль.txt`, `type ${secret.slice(0, 6)}"${secret.slice(6)}"\\deep`, 'echo bridge^rator', 'Get-Process *bridge`rator*']) denied(cmd(c));
+    `type "${secret}"\\deep\\пароль.txt`, `type ${secret.slice(0, 6)}"${secret.slice(6)}"\\deep`, 'bridge^rator.cmd confirm off', 'Stop-Process -Name bridge`rator']) denied(cmd(c));
   assert.equal(cmd('echo "hello" ^& dir'), null, 'ordinary quoting still runs');
 });
 
@@ -115,7 +118,7 @@ test('B1-1: relative paths are checked against the ENGINE folder (cwd), where th
   const elsewhere = createPolicy({ deniedDirectories: [secret], cwd: path.join(root, 'x', 'y', 'z') });
   assert.equal(elsewhere.check('read_file', { path: rel }), null);
   // In a terminal command too.
-  denied(cmd(`type ${rel}`));
+  denied(cmd(`type "${rel}"`)); // unquoted, the space in the profile name would split it into two missing files
   denied(cmd(`Get-Content "${rel}"`));
 });
 

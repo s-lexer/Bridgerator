@@ -27,7 +27,7 @@ const DIR = path.join(APPDATA, 'Bridgerator');
 const work = path.join(root, 'Рабочая папка');
 for (const d of [DIR, work]) fs.mkdirSync(d, { recursive: true });
 
-const { startDesktopCommander } = await import('../src/bridge.mjs');
+const { startEngine } = await import('../src/bridge.mjs');
 const { ensureIni, setIni } = await import('../src/confirm.mjs');
 const CONFIG = path.join(DIR, 'config.json'), INI = path.join(DIR, 'confirm.ini');
 const base = { relay: 'wss://relay.invalid/link', token: 't', allowedDirectories: [work, fakeHome], deniedDirectories: [], readOnlyDirectories: [], telemetryEnabled: false, localHistory: false, setupDone: true, protectSensitive: false, blockedCommands: ['erase'], fuse: { enabled: true, limit: 1 } };
@@ -48,7 +48,7 @@ const text = (r) => (r.content || []).map((c) => c.text).join('\n');
 const W = (...x) => path.join(work, ...x);
 
 before(async () => {
-  dc = await startDesktopCommander({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG, snapshotsDir: path.join(DIR, 'snapshots') }, (l) => logs.push(l), {
+  dc = await startEngine({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG, snapshotsDir: path.join(DIR, 'snapshots') }, (l) => logs.push(l), {
     ask: async () => 'allow',
     // A fake Recycle Bin folder: each item becomes a $I/$R pair, its $R path reported like recycle.ps1 does.
     recycle: async (paths) => paths.map((p) => {

@@ -28,7 +28,7 @@ const work = path.join(root, 'Рабочая папка'), ro = path.join(root, 
 for (const d of [DIR, work, ro, path.join(fakeHome, '.ssh')]) fs.mkdirSync(d, { recursive: true });
 fs.writeFileSync(path.join(fakeHome, '.ssh', 'id_rsa'), 'KEY');
 
-const { startDesktopCommander } = await import('../src/bridge.mjs');
+const { startEngine } = await import('../src/bridge.mjs');
 const { ensureIni } = await import('../src/confirm.mjs');
 const CONFIG = path.join(DIR, 'config.json'), INI = path.join(DIR, 'confirm.ini');
 // What the CLI passes: protectSensitive explicit (off by default since 21.10).
@@ -51,7 +51,7 @@ const askedNow = () => asked.length;
 const until = async (f, ms = 6000) => { const t0 = Date.now(); while (!(await f())) { if (Date.now() - t0 > ms) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 100)); } };
 
 before(async () => {
-  dc = await startDesktopCommander({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG, snapshotsDir: path.join(DIR, 'snapshots') }, () => {}, {
+  dc = await startEngine({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG, snapshotsDir: path.join(DIR, 'snapshots') }, () => {}, {
     ask: async (q) => {
       asked.push(q);
       const a = typeof answer === 'function' ? answer(q) : answer;
@@ -215,6 +215,37 @@ test('config.json changed outside: a safe change shows at once; a weakening one 
   // Window ↔ AI: what the window sets is what the AI reads.
   await dc.rpc('setSetting', { key: 'snapshots.days', value: 14 });
   assert.equal(JSON.parse(text(await dc.call('bridgerator_settings', { action: 'get' }))).current.snapshots.days, 14);
+});
+
+test('askSettings off: a config.json edit that widens access applies at once, nothing asked (owner 26.10)', async () => {
+  await dc.rpc('setSetting', { key: 'notify.settingsChanged', value: false }); // no real toast in the test run
+  await dc.rpc('setSetting', { key: 'askSettings', value: false });
+  await until(() => JSON.parse(fs.readFileSync(CONFIG, 'utf8')).askSettings === false);
+  const n = asked.length;
+  const extra = path.join(root, 'Extra'); fs.mkdirSync(extra, { recursive: true });
+  const c = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
+  fs.writeFileSync(CONFIG, JSON.stringify({ ...c, allowedDirectories: [...c.allowedDirectories, extra], recycleBin: false }, null, 2));
+  await until(async () => (await state()).recycleBin === false);
+  await dc.settled();
+  assert.ok((await state()).allowedDirectories.includes(extra));
+  assert.equal(asked.length, n, 'no Apply question');
+  // Excluded folders are never AI-editable: removing one in the file still asks (review 26.10); Keep puts it back.
+  const secret = path.join(root, 'Secret'); fs.mkdirSync(secret, { recursive: true });
+  await dc.rpc('setSetting', { key: 'notify.settingsChanged', value: false });
+  const c2 = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
+  fs.writeFileSync(CONFIG, JSON.stringify({ ...c2, deniedDirectories: [secret] }, null, 2));
+  fs.writeFileSync(path.join(secret, 's.txt'), 'S');
+  await until(async () => /excluded/.test(text(await dc.call('read_file', { path: path.join(secret, 's.txt') }))));
+  await dc.settled();
+  assert.equal(asked.length, n, 'adding an excluded folder applies at once');
+  answer = 'deny';
+  const c3 = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
+  fs.writeFileSync(CONFIG, JSON.stringify({ ...c3, deniedDirectories: [] }, null, 2));
+  // An earlier Deny in this file started the cool-down: the gate answers Keep without a new question.
+  await until(() => JSON.parse(fs.readFileSync(CONFIG, 'utf8')).deniedDirectories?.length === 1);
+  assert.match(text(await dc.call('read_file', { path: path.join(secret, 's.txt') })), /excluded/, 'Keep: still excluded');
+  await dc.rpc('setSetting', { key: 'recycleBin', value: true });
+  await dc.rpc('setSetting', { key: 'askSettings', value: true });
 });
 
 test('keep awake: wanted while / right after calls; the window sees it with undo stats', async () => {

@@ -30,6 +30,20 @@ export function noticeText(n) {
     const title = typeof n.title === 'string' ? n.title.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, 120) : '';
     if (!title) return undefined;
     t = ['Queue task done', title];
+  } else if (kind === 'queue_stalled') {
+    const title = typeof n.title === 'string' ? n.title.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, 120) : '';
+    if (!title) return undefined;
+    const more = int(n.more) || 0;
+    t = ['ChatGPT may be waiting for you', `No activity on the queue task "${title}"${more ? ` and ${more} more` : ''} for 10 minutes. Open the ChatGPT chat: it may be asking you to allow an action, or show an error such as "model is at capacity" — press Retry there or pick another model.`];
+  } else if (kind === 'settings_changed') {
+    // The bridge's own change lines (describe / diffSetup): paths and labels, no relay text.
+    const what = Array.isArray(n.what) ? n.what.map((w) => String(w).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim()).filter(Boolean) : [];
+    if (!what.length || !['ai', 'file'].includes(n.by)) return undefined;
+    // Whole lines up to ~200 chars, then "+N more" (the window has the full list): nothing is cut silently.
+    let all = what[0].slice(0, 200), k = 1;
+    while (k < what.length && all.length + what[k].length + 3 <= 200) all += ` · ${what[k++]}`;
+    if (k < what.length) all += ` · +${what.length - k} more`;
+    t = ['Bridgerator settings changed', `${n.by === 'ai' ? 'By the AI' : 'In the settings file'}: ${all}. Turn this notice off in the Bridgerator window.`];
   } else if (kind === 'protection_off') {
     // Internal list only (the bridge's own labels), never relay text.
     const ok = new Set(['confirmations', 'your own patterns', ...Object.values(LABEL).map((l) => `confirmations for ${l}`)]);

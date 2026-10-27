@@ -56,13 +56,13 @@ export function createLink(write, { onMenu = () => {}, onRpc = async () => null,
 }
 
 /** Starts the helper (Windows only) and keeps it running while the bridge runs. → link-like object. */
-export function startTray({ log = console.log, onMenu, onRpc, onPower, spawn = nodeSpawn, stderr = 'ignore', testEnv = {}, account = '' } = {}) {
+export function startTray({ log = console.log, onMenu, onRpc, onPower, spawn = nodeSpawn, stderr = 'ignore', testEnv = {}, account = '', webview = '' } = {}) {
   if (process.platform !== 'win32') return null;
   let child = null, link = null, closing = false, restartTimer = null;
   // Our own variables only: BR_* / BRIDGERATOR_* from the environment are ignored (a test harness
   // passes its hooks explicitly as testEnv).
   // BR_ACCOUNT: the account page of the site this PC is linked to (a staging install opens staging; V-5).
-  const env = { ...stripOurs(process.env), ...testEnv, BR_PARENT: String(process.pid), BR_PKG: PKG_DIR, ...(/^https:\/\/[a-z0-9.-]+(:\d+)?\/app$/i.test(account) ? { BR_ACCOUNT: account } : {}) };
+  const env = { ...stripOurs(process.env), ...testEnv, BR_PARENT: String(process.pid), BR_PKG: PKG_DIR, ...(webview ? { BR_WEBVIEW: webview } : {}), ...(/^https:\/\/[a-z0-9.-]+(:\d+)?\/app$/i.test(account) ? { BR_ACCOUNT: account } : {}) };
   const start = () => {
     // Plain -Command (not encoded): its command line names the package folder, so the one process
     // matcher (stop / update / uninstall) finds the helper too.

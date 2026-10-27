@@ -25,7 +25,7 @@ for (let i = 1; i <= 4; i++) fs.writeFileSync(path.join(photos, `IMG_${i}.jpg`),
 const pem = selfSignedCert();
 const relay = await startFakeRelay(pem);
 tls.setDefaultCACertificates([...tls.getCACertificates('default'), pem.cert]);
-const { startDesktopCommander, connect } = await import('../src/bridge.mjs');
+const { startEngine, connect } = await import('../src/bridge.mjs');
 const { ensureIni, setIni } = await import('../src/confirm.mjs');
 const CONFIG = path.join(DIR, 'config.json'), INI = path.join(DIR, 'confirm.ini');
 const base = { askSettings: true, relay: relay.url, token: 't', allowedDirectories: [], deniedDirectories: [], readOnlyDirectories: [], telemetryEnabled: false, localHistory: false, setupDone: true, fuse: { enabled: true, limit: 2 } };
@@ -40,7 +40,7 @@ const body = (r) => JSON.parse(r.content[0].text);
 const src = (i) => path.join(photos, `IMG_${i}.jpg`), dst = (i) => path.join(sorted, `IMG_${i}.jpg`);
 
 before(async () => {
-  dc = await startDesktopCommander({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG, scriptsDir: SCRIPTS }, () => {}, { ask: async (q) => { asked.push(q); return answer(q); } });
+  dc = await startEngine({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG, scriptsDir: SCRIPTS }, () => {}, { ask: async (q) => { asked.push(q); return answer(q); } });
   ws = connect({ ...base }, dc, () => {});
   link = await relay.next();
 });

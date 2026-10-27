@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { load } from '../src/dc-config-hooks.mjs';
 
-const dist = path.dirname(createRequire(import.meta.url).resolve('@wonderwhy-er/desktop-commander/dist/index.js'));
+const dist = path.dirname(createRequire(import.meta.url).resolve('bridgerator-engine/dist/index.js'));
 const fake = (rel) => pathToFileURL(path.join(dist, rel)).href;
 const via = (source) => async () => ({ format: 'module', source });
 

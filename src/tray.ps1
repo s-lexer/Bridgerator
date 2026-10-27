@@ -73,7 +73,7 @@ $account = if ($env:BR_ACCOUNT -match '^https://[a-z0-9.-]+(:\d+)?/app$') { $env
 $siteHost = ([Uri]$account).Host
 $send = { param($o) [BrIO]::Send(($o | ConvertTo-Json -Compress -Depth 6)) }
 # Links from the window / menu: only our own site (the main one, or the linked one), opened in the default browser.
-$openUrl = { param($u) try { $x = [Uri]$u; if ($x.Scheme -eq 'https' -and ($x.Host -eq 'bridgerator.recondeck.com' -or $x.Host -eq $siteHost) -and -not $x.UserInfo) { Start-Process $x.AbsoluteUri } } catch {} }
+$openUrl = { param($u) try { $x = [Uri]$u; if ($x.Scheme -eq 'https' -and ($x.Host -eq 'bridgerator.recondeck.com' -or $x.Host -eq $siteHost -or ($x.Host -eq 'chatgpt.com' -and $x.AbsolutePath -like '/settings/*')) -and -not $x.UserInfo) { Start-Process $x.AbsoluteUri } } catch {} }
 $openAccount = { & $openUrl $account }
 $g0 = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $script:dpi = $g0.DpiX / 96.0; $g0.Dispose()
 if ($env:BR_DPI) { $script:dpi = [double]$env:BR_DPI }   # test harness: simulate scaling
@@ -230,7 +230,7 @@ function Open-Window([string]$page = 'home', [switch]$Prewarm) {
   $f.MinimumSize = New-Object Drawing.Size([int](760 * $k), [int](520 * $k))
   $wv = New-Object Microsoft.Web.WebView2.WinForms.WebView2; $wv.Dock = 'Fill'; $wv.DefaultBackgroundColor = $bg
   $cp = New-Object Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties
-  $cp.UserDataFolder = Join-Path $env:LOCALAPPDATA 'Bridgerator\webview'; $wv.CreationProperties = $cp
+  $cp.UserDataFolder = if ($env:BR_WEBVIEW) { $env:BR_WEBVIEW } else { Join-Path $env:LOCALAPPDATA 'Bridgerator\webview' }; $wv.CreationProperties = $cp
   if ($env:BR_ZOOM) { $wv.ZoomFactor = [double]$env:BR_ZOOM }
   $f.Controls.Add($wv)
   $post = { param($o) if ($wv.CoreWebView2) { $wv.CoreWebView2.PostWebMessageAsJson(($o | ConvertTo-Json -Compress -Depth 4)) } }.GetNewClosure()

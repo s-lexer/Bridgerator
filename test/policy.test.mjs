@@ -59,7 +59,10 @@ test('result lines revealing the excluded folder are dropped', () => {
   assert.match(text, /ok\.txt/);
   assert.match(text, /Secretive/);
   assert.doesNotMatch(text, /pw\.txt|x\.txt/);
-  assert.match(text, /2 line\(s\) hidden/);
+  assert.match(text, /2 line\(s\) naming an excluded folder were left out; everything else above is complete — not an error/);
+  // The text of an allowed file is the person's own: a line naming the excluded folder stays (E2E 26.10).
+  const doc = { content: [{ type: 'text', text: `notes\nlogs are in ${path.join(secret, 'deep')}\nend` }] };
+  for (const t of ['read_file', 'read_multiple_files']) assert.deepEqual(p.filter(doc, t, { path: path.join(root, 'notes.md') }), doc, t);
 });
 
 test('a listing of the parent hides the excluded child entries', () => {
@@ -105,7 +108,7 @@ test('read-only folders: reads allowed, every write tool refused (move_file on e
   assert.equal(q.check('write_file', { path: path.join(root, 'ArchiveX', 'a.txt') }), null);
   assert.match(q.check('start_process', { command: 'bridgerator.cmd confirm off' }), /person at this PC/);
   for (const c of ['notepad %APPDATA%\\Bridgerator\\confirm.ini', 'Get-Content $env:APPDATA\\Bridgerator\\config.json', 'type ${env:APPDATA}\\Bridgerator\\queue.json',
-    'Stop-Process -Name node; # BRIDGERATOR', 'schtasks /Delete /TN Bridgerator-S-1-5', 'cat ~/.ssh/id_rsa']) assert.match(q.check('start_process', { command: c }), /Bridgerator|excluded/, c);
+    'Stop-Process -Name BRIDGERATOR', 'schtasks /Delete /TN Bridgerator-S-1-5', 'cat ~/.ssh/id_rsa']) assert.match(q.check('start_process', { command: c }), /Bridgerator|excluded/, c);
   assert.equal(q.check('start_process', { command: 'Get-ChildItem D:\\Work' }), null);
 });
 

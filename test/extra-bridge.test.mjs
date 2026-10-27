@@ -28,7 +28,7 @@ const DIR = path.join(APPDATA, 'Bridgerator');
 const work = path.join(root, 'Отчёты 2026'), ro = path.join(root, 'Архив');
 for (const d of [DIR, work, ro]) fs.mkdirSync(d, { recursive: true });
 
-const { startDesktopCommander } = await import('../src/bridge.mjs');
+const { startEngine } = await import('../src/bridge.mjs');
 const { ensureIni } = await import('../src/confirm.mjs');
 const CONFIG = path.join(DIR, 'config.json'), INI = path.join(DIR, 'confirm.ini');
 const base = { askSettings: true, relay: 'wss://relay.invalid/link', token: 't', allowedDirectories: [], deniedDirectories: [], readOnlyDirectories: [ro], telemetryEnabled: false, localHistory: false, setupDone: true, disabledTools: ['pc_health'] };
@@ -41,7 +41,7 @@ let dc;
 const text = (r) => (r.content || []).map((c) => c.text).join('\n');
 
 before(async () => {
-  dc = await startDesktopCommander({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG }, () => {},
+  dc = await startEngine({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG }, () => {},
     { ask: async (q) => { asked.push(q); return answer; } });
 });
 after(async () => { await dc?.close(); fs.rmSync(root, { recursive: true, force: true }); });

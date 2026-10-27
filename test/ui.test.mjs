@@ -454,3 +454,17 @@ test('screen-reader labels are translated: no fixed English aria-label / hidden 
   assert.deepEqual(APP.match(/class="sr">[^<$]+</g) || [], [], 'app.js: hidden labels come from t()');
   for (const tag of HTML.match(/<[^>]*aria-label="[^"]*"[^>]*>/g) || []) assert.match(tag, /data-i18n-aria="/, `index.html: ${tag}`);
 });
+
+test('home: "Let ChatGPT work without asking" opens Bridgerator\'s Permission page in ChatGPT, then shows as done', async (t) => {
+  const page = await openPage(t);
+  if (!page) return;
+  await page.setViewportSize({ width: 1040, height: 900 });
+  await page.click('[data-act="chatgptAllow"]');
+  await settle(page);
+  assert.deepEqual(await calls(page, 'openUrl'), [{ url: 'https://chatgpt.com/settings/plugins-settings/plugin_asdk_app_6ad78d4a3c408191a9215fd304394c4a/permissions' }]);
+  assert.equal((await calls(page, 'chatgptAllowOpened')).length, 1);
+  if (process.env.UI_SHOT) await page.screenshot({ path: process.env.UI_SHOT });
+  assert.equal(await page.evaluate(() => document.scrollingElement.scrollHeight <= innerHeight), true, 'home fits 1040 x 900 without a scrollbar');
+  assert.deepEqual(page.errors, []);
+  await page.close();
+});

@@ -35,7 +35,7 @@ test('exe: the autostart line (exe + cli.mjs run) and the engine child (--import
   const cli = `${APP}\\src\\cli.mjs`;
   assert.deepEqual(plan([EXE, EXE, cli, 'run'], APP), { imports: [], script: cli, rest: ['run'] });
   const isolate = pathToFileURL(`${APP}\\src\\dc-isolate.mjs`).href;
-  const engine = `${APP}\\node_modules\\@wonderwhy-er\\desktop-commander\\dist\\index.js`;
+  const engine = `${APP}\\node_modules\\bridgerator-engine\\dist\\index.js`;
   const p = plan([EXE, EXE, '--import', isolate, engine], APP);
   assert.equal(p.imports[0].toLowerCase(), `${APP}\\src\\dc-isolate.mjs`.toLowerCase(), 'file:// URL with Cyrillic and spaces → the path');
   assert.equal(p.script, engine);

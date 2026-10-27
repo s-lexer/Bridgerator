@@ -1,5 +1,5 @@
 // Bridgerator bridge: runs on the user's PC.
-//   - starts the bundled open-source Desktop Commander MCP server as a child over stdio;
+//   - starts the bundled MCP engine as a child over stdio;
 //   - pushes this PC's limits (allowedDirectories, blockedCommands) into it at startup;
 //   - opens ONE outbound WebSocket to the relay (no inbound port is opened on this PC);
 //   - forwards each relay `call` through the policy (excluded / read-only folders, disabled tools)
@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 import WebSocket from 'ws';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { createPolicy, debrand, debrandResult, TERMINAL_TOOLS, ALWAYS_HIDDEN } from './policy.mjs';
+import { createPolicy, debrand, debrandResult, ourUi, engineUi, TERMINAL_TOOLS, ALWAYS_HIDDEN } from './policy.mjs';
 import { showNotice } from './notice.mjs';
 import { usage } from './telemetry.mjs';
 import { createGate, askOnPc, CONFIRM_TOOL_DEFS } from './confirm.mjs';
@@ -19,7 +19,7 @@ import { shorten } from './tool-text.mjs';
 import { parseDelete, recycle as recycleOnPc, purgeFromBin } from './recycle.mjs';
 import { createSnapshots, changedPaths, undoGroups, SNAP_DEFAULTS, UNDO_TOOL_DEF } from './undo.mjs';
 import { createFuse, wantAwake, FUSE_DEFAULTS } from './guard.mjs';
-import { createQueue, queueTool, QUEUE_TOOL_DEFS, QUEUE_TOOL_NAMES } from './queue.mjs';
+import { createQueue, queueTool, stalledItems, QUEUE_TOOL_DEFS, QUEUE_TOOL_NAMES } from './queue.mjs';
 import { createRecent, outcomeOf } from './recent.mjs';
 import { readSettingsStrict, setIni, writeAtomic, CATEGORIES, findMatch, clip } from './confirm.mjs';
 import { readPlan, planBanner, bannerVisible, dismissFor, safeUrl, forecast, setSite, accountUrl } from './plan.mjs';
@@ -59,7 +59,7 @@ export function createLimiter(max, waitMs) {
   };
 }
 const BUSY_WAIT_MS = 30000;
-const DC_ENTRY = createRequire(import.meta.url).resolve('@wonderwhy-er/desktop-commander/dist/index.js');
+const DC_ENTRY = createRequire(import.meta.url).resolve('bridgerator-engine/dist/index.js');
 const ISOLATE = new URL('./dc-isolate.mjs', import.meta.url).href;
 
 /** Drive roots of this PC (C:\\ … Z:\\): what the Read only preset makes read-only when there is no folder list. */
@@ -78,7 +78,7 @@ export async function localDrivesAsync() {
 }
 const DRIVES_MS = 60000;
 
-export async function startDesktopCommander(cfg, log = console.log, { ask: askArg, recycle: recycleArg, drives: drivesArg, delegate: delegateOpts } = {}) {
+export async function startEngine(cfg, log = console.log, { ask: askArg, recycle: recycleArg, drives: drivesArg, delegate: delegateOpts } = {}) {
   const ask0 = askArg || askOnPc;
   const recycle = recycleArg || recycleOnPc;
   // Drive list: refreshed in the background once a minute (new / removed drives are seen); only the
@@ -115,7 +115,7 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
   const absPath = (p) => path.resolve(engineDir, String(p).replace(/^~(?=[\\/]|$)/, os.homedir()));
   const transport = new StdioClientTransport({
     command: process.execPath,
-    // Own Desktop Commander config (dc-isolate.mjs): a DC the user runs elsewhere keeps its limits.
+    // The engine's own config folder (dc-isolate.mjs): a copy of the engine the user runs elsewhere keeps its limits.
     args: ['--import', ISOLATE, DC_ENTRY],
     // No calls home: telemetry kill-switch, and remote feature flags (onboarding page, promo text
     // injected into tool results, A/B tests) replaced by an empty local set.
@@ -133,7 +133,7 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
   // Engine gone (crash, killed): nothing works without it — exit, the autostart starts us again.
   let closing = false;
   client.onclose = () => { if (closing) return; log(`[bridgerator] engine stopped — exiting (autostart restarts the bridge)${engineErr()}`); process.exit(1); };
-  // The PC owner's limits go into Desktop Commander's own config; the model can't change them
+  // The PC owner's limits go into the engine's own config; the model can't change them
   // (set_config_value is never exposed to the relay, see policy.ALWAYS_HIDDEN).
   const set = (key, value) => client.callTool({ name: 'set_config_value', arguments: { key, value } });
   await set('allowedDirectories', cfg.allowedDirectories || []);
@@ -152,7 +152,7 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
   // Snapshots + Undo (on by default) in %LOCALAPPDATA%\Bridgerator\snapshots (given by the CLI).
   const snapCfg = () => ({ ...SNAP_DEFAULTS, ...(cfg.snapshots || {}) });
   const snapshots = cfg.snapshotsDir ? createSnapshots(cfg.snapshotsDir, { limits: snapCfg, log }) : null;
-  const visible = [...tools.filter(listed).map(debrand), ...CONFIRM_TOOL_DEFS, SETUP_TOOL_DEF, ...(cfg.configFile ? [SETTINGS_TOOL_DEF] : []), ...(cfg.configDir ? QUEUE_TOOL_DEFS : []), ...(snapshots ? [UNDO_TOOL_DEF] : []), ...extra.defs.filter(policy.visible)].map(shorten);
+  const visible = [...tools.filter(listed).map(debrand), ...CONFIRM_TOOL_DEFS, SETUP_TOOL_DEF, ...(cfg.configFile ? [SETTINGS_TOOL_DEF] : []), ...(cfg.configDir ? QUEUE_TOOL_DEFS : []), ...(snapshots ? [UNDO_TOOL_DEF] : []), ...extra.defs.filter(policy.visible)].map(shorten).map(ourUi);
   const virtual = new Set(CONFIRM_TOOL_DEFS.map((t) => t.name));
   // namePending: a computer name given on this PC not yet accepted by the relay — kept in config.json too,
   // so a restart before the next link does not lose it; cleared by nameSent() (welcome / live mode message).
@@ -197,7 +197,7 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
     return gate.accept(s ? { enabled: s.enabled } : {});
   };
   // MCP Apps widgets (file preview, config view) — served to ChatGPT through the relay as-is.
-  const resources = ((await client.listResources().catch(() => ({ resources: [] }))).resources || []).map(debrand);
+  const resources = ourUi(((await client.listResources().catch(() => ({ resources: [] }))).resources || []).map(debrand));
   const resourceUris = new Set(resources.map((r) => r.uri));
   log(`[bridgerator] engine up: ${visible.length} tools; allowed=${JSON.stringify(cfg.allowedDirectories || [])} excluded=${JSON.stringify(cfg.deniedDirectories || [])} read-only=${JSON.stringify(cfg.readOnlyDirectories || [])} confirm=${gate.mode()}`);
   if (!(cfg.allowedDirectories || []).length) log('[bridgerator] folders: all (no list), except the always-blocked ones');
@@ -251,6 +251,9 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
 
   // bridgerator_setup: applied at once; after Apply on the PC only with askSettings on (setup-tool.mjs).
   const say = (t, isError) => ({ content: [{ type: 'text', text: t }], ...(isError ? { isError: true } : {}) });
+  // The person sees every settings change not made in the window (notify.settingsChanged, on by default; owner 26.10).
+  // `on` is read before the change: the call that turns this notice off is still announced (review 26.10).
+  const toldSettings = (by, lines, on = cfg.notify?.settingsChanged !== false) => { const what = lines.filter((l) => l && l !== 'No changes' && !/: unchanged$/.test(l)).sort((a, b) => /settingsChanged/.test(b) - /settingsChanged/.test(a)); if (what.length && on) showNotice({ kind: 'settings_changed', by, what }, log); };
   async function setup(args) {
     const v = validateSetup(args);
     if (v.error) return say(`Not applied: ${v.error}`, true);
@@ -261,7 +264,7 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
       delete v.value.preset;
     }
     // Owner 21.10: applied at once; Apply on the PC only when the person turned on "Ask before AI changes settings".
-    if (cfg.askSettings !== true) { await applyValues(v.value, 'bridgerator_setup'); return say('Applied on the PC.'); }
+    if (cfg.askSettings !== true) { const d = diffSetup(cfg, cfg.confirmIni, v.value).short, on = cfg.notify?.settingsChanged !== false; try { await applyValues(v.value, 'bridgerator_setup'); } finally { toldSettings('ai', [d], on); } return say('Applied on the PC.'); }
     // A diff that fits the notification gets Apply there; a longer one is reviewed in the window.
     const diff = diffSetup(cfg, cfg.confirmIni, v.value);
     let r;
@@ -291,14 +294,18 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
     // Owner 21.10: everything applies at once unless "Ask before AI changes settings" is on (then only lowering protection asks).
     const ask1 = (c) => cfg.askSettings === true && widens(cur, c);
     const risky = v.changes.filter(ask1), safe = v.changes.filter((c) => !ask1(c));
-    for (const c of safe) await rpc('setSetting', { ...c, via: 'bridgerator_settings' });
+    const on = cfg.notify?.settingsChanged !== false;
+    // Announced: what really changed (not a value sent again), also when a later change fails.
+    const real = (c) => JSON.stringify(c.key.split('.').reduce((o, k) => o?.[k], cur)) !== JSON.stringify(c.value);
+    const apply = async (list) => { const ok = []; try { for (const c of list) { await rpc('setSetting', { ...c, via: 'bridgerator_settings' }); if (real(c)) ok.push(describe(cur, c)); } } finally { toldSettings('ai', ok, on); } };
+    await apply(safe);
     const done = safe.map((c) => describe(cur, c));
     if (!risky.length) return say(`Applied: ${done.join('; ')}`);
     const lines = risky.map((c) => describe(cur, c)), short = lines.join(' · ');
     const r = short.length <= 180
       ? await gate.askPerson('settings', { head: 'ChatGPT wants to change Bridgerator settings', text: short, buttons: [['allow', 'Apply', ''], ['deny', 'Cancel', 'deny']], secs: 120, auto: 'auto-cancel', ...popup() })
       : await gate.askPerson('settings', { review: true, lines });
-    if (r === 'allow') { for (const c of risky) await rpc('setSetting', { ...c, via: 'bridgerator_settings' }); return say(`Applied${done.length ? `: ${done.join('; ')};` : ':'} after the person's OK: ${lines.join('; ')}`); }
+    if (r === 'allow') { await apply(risky); return say(`Applied${done.length ? `: ${done.join('; ')};` : ':'} after the person's OK: ${lines.join('; ')}`); }
     return { ...say(`${done.length ? `Applied: ${done.join('; ')}. ` : ''}Not applied (the person at the PC ${r === 'cooldown' ? 'declined a few minutes ago' : 'cancelled or didn\'t answer'}): ${lines.join('; ')}`), notConfirmed: true };
   }
 
@@ -374,6 +381,14 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
   // --- Recycle Bin, mass-action fuse, Undo (LOGIC: critical-logic/bridge.md) ---------------------
   const fuse = createFuse();
   let fuseAsking = false, inFlight = 0, lastCall = 0, wasPaused = false;
+  // One notice per stalled "doing" item (id + updatedAt), on unless the person turned it off.
+  const stalledWarned = new Set(), started = Date.now();
+  if (queue) setInterval(() => {
+    if (cfg.notify?.queueStalled === false || inFlight) return;
+    const fresh = stalledItems(queue.list('doing'), { now: Date.now(), idleSince: Math.max(lastCall, started) }).filter((it) => !stalledWarned.has(`${it.id}@${it.updatedAt}`));
+    for (const it of fresh) stalledWarned.add(`${it.id}@${it.updatedAt}`);
+    if (fresh.length) showNotice({ kind: 'queue_stalled', title: fresh[0].title, more: fresh.length - 1 }, log); // one notice per check, not a burst
+  }, 60000).unref();
   const fuseCfg = () => ({ ...FUSE_DEFAULTS, ...(cfg.fuse || {}) });
   const setPaused = (v) => { if (out.setPaused) out.setPaused(v); else { out.paused = v; out.onMode(mode()); } };
   const currentTask = () => { const d = queue ? queue.list('doing') : []; return d.length === 1 ? { id: d[0].id, title: d[0].title } : undefined; };
@@ -484,8 +499,9 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
     return { ...rest, confirm: { enabled: confirm.enabled, ...confirm.ask, timeoutSeconds: confirm.timeoutSec }, telemetryEnabled: telemetry };
   };
   async function readResource(uri) {
-    if (!resourceUris.has(uri)) return { error: 'unknown resource' };
-    try { return { result: debrand(await client.readResource({ uri })) }; } catch (e) { return { error: String(e?.message || e) }; }
+    // The old widget URI still works: ChatGPT and the relay's offline list may have cached it.
+    if (!resourceUris.has(ourUi(String(uri)))) return { error: 'unknown resource' };
+    try { return { result: ourUi(debrand(await client.readResource({ uri: engineUi(uri) }))) }; } catch (e) { return { error: String(e?.message || e) }; }
   }
   // Requests of the Bridgerator window (tray helper). Made by the person at the PC: no extra prompt.
   // Theme for our pop-ups = the window's theme (Settings → Appearance); sound / style from Notifications.
@@ -495,7 +511,7 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
   const bannerNow = () => { const b = planBanner(out.plan); return { ...b, visible: bannerVisible(b, cfg.planBannerDismissed) }; };
   out.banner = bannerNow;
   out.onPlanMsg = (m) => { out.plan = readPlan(m); out.onPlan?.(); };
-  const BOOL_NOTIFY = ['sound', 'offline', 'queueDone', 'limit'];
+  const BOOL_NOTIFY = ['sound', 'offline', 'queueDone', 'queueStalled', 'settingsChanged', 'limit'];
 
   // Requests of the Bridgerator window (tray helper). Made by the person at the PC: no extra prompt.
   async function rpc(method, p = {}, paths = []) {
@@ -504,7 +520,7 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
         const conf = gate.settings();
         return {
           state: out.paused ? 'paused' : out.linkState, name: cfg.deviceName || out.linkName, version: VERSION, paused: out.paused,
-          email: out.email || '', plan: out.plan || null, banner: bannerNow(), setupDone: cfg.setupDone === true,
+          email: out.email || '', plan: out.plan || null, banner: bannerNow(), setupDone: cfg.setupDone === true, allowOpened: cfg.chatgptAllowOpened === true,
           settings: {
             confirm: conf, allowedDirectories: cfg.allowedDirectories || [], readOnlyDirectories: cfg.readOnlyDirectories || [],
             theme: popup().theme, language: cfg.language || 'en', localHistory: cfg.localHistory === true, telemetry: cfg.telemetryEnabled !== false,
@@ -586,6 +602,7 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
         return { restored: r.flatMap((x) => x.restored), skipped: r.flatMap((x) => x.skipped) };
       }
       case 'undo.clear': snapshots?.clear(); return true;
+      case 'chatgptAllowOpened': patchConfig({ chatgptAllowOpened: true }); return true;
       case 'dismissBanner': { const b = planBanner(out.plan); if (b.dismissible) patchConfig({ planBannerDismissed: dismissFor(b) }); out.onPlan?.(); return true; }
       case 'testNotification': return ask({ head: 'Test notification', text: 'This is how Bridgerator asks before risky actions. Nothing will run.', buttons: [['allow', 'Allow', ''], ['allow10', 'Allow 10 min', ''], ['always', 'Allow always', ''], ['deny', 'Deny', 'deny']], secs: 60, auto: 'closes', ...popup() });
       case 'checkUpdate': {
@@ -644,21 +661,29 @@ export async function startDesktopCommander(cfg, log = console.log, { ask: askAr
     const den = list(j.deniedDirectories), denNow = cfg.deniedDirectories || [];
     const denRemoved = denNow.filter((x) => !den.some((y) => y.toLowerCase() === x.toLowerCase()));
     if (!changes.length && JSON.stringify(den) === JSON.stringify(denNow)) return;
-    const risky = changes.filter((c) => widens(cur, c)), safe = changes.filter((c) => !widens(cur, c));
+    // Owner 26.10: a file edit applies at once like an AI change; Apply on the PC only with askSettings on.
+    const ask1 = (c) => cfg.askSettings === true && widens(cur, c);
+    const risky = changes.filter(ask1), safe = changes.filter((c) => !ask1(c));
+    // Excluded folders are never AI-editable (bridgerator_settings / setup can't touch them): removing one from the file always asks.
+    const denAsk = denRemoved.length > 0;
+    const on = cfg.notify?.settingsChanged !== false;
     const back = {};
     const top = (key) => (key === 'terminal' ? 'disabledTools' : key.split('.')[0]);
     for (const c of safe) { try { await rpc('setSetting', { ...c, via: 'settings file' }); } catch (e) { log(`[bridgerator] settings file: ${c.key} not applied (${e.message})`); back[top(c.key)] = cfg[top(c.key)]; } }
-    if (!denRemoved.length) { cfg.deniedDirectories = den; policy = makePolicy(); }
-    const lines = [...risky.map((c) => describe(cur, c)), ...(denRemoved.length ? [`Excluded folders: ${denRemoved.map((x) => `−${x}`).join(', ')}`] : [])];
+    if (!denAsk) { cfg.deniedDirectories = den; policy = makePolicy(); }
+    const denLine = denRemoved.length ? [`Excluded folders: ${denRemoved.map((x) => `−${x}`).join(', ')}`] : [];
+    toldSettings('file', safe.filter((c) => !(top(c.key) in back)).map((c) => describe(cur, c)), on);
+    const lines = [...risky.map((c) => describe(cur, c)), ...(denAsk ? denLine : [])];
     if (lines.length) {
       const r = await gate.askPerson('file', { head: 'Bridgerator settings file changed', text: clip(`Apply: ${lines.join(' · ')}?`, '', 180), buttons: [['allow', 'Apply', ''], ['deny', 'Keep', 'deny']], secs: 120, auto: 'auto-keep', ...popup() });
       if (r === 'allow') {
         for (const c of risky) { try { await rpc('setSetting', { ...c, via: 'settings file' }); } catch (e) { log(`[bridgerator] settings file: ${c.key} not applied (${e.message})`); back[top(c.key)] = cfg[top(c.key)]; } }
-        if (denRemoved.length) { cfg.deniedDirectories = den; policy = makePolicy(); }
+        if (denAsk) { cfg.deniedDirectories = den; policy = makePolicy(); }
+        toldSettings('file', [...risky.filter((c) => !(top(c.key) in back)).map((c) => describe(cur, c)), ...(denRemoved.length ? denLine : [])], on);
         log(`[bridgerator] settings file change applied on the PC: ${lines.join('; ')}`);
       } else {
         for (const c of risky) back[top(c.key)] = cfg[top(c.key)];
-        if (denRemoved.length) back.deniedDirectories = denNow;
+        if (denAsk) back.deniedDirectories = denNow;
         log(`[bridgerator] settings file change kept out (${r}): ${lines.join('; ')}`);
       }
     }
@@ -690,6 +715,9 @@ export function cleanEnv(env = process.env) {
 export function engineEnv(env = process.env) {
   const e = cleanEnv(env);
   for (const k of Object.keys(e)) if (/^(BRIDGERATOR_|BR_)/i.test(k)) delete e[k];
+  // The terminal's PowerShell may run .ps1 (npm.ps1, npx.ps1…): Windows' default "Restricted" blocks them (26.10, a user's
+  // PC). Process scope only — the PC's own policy is never changed, a Group Policy still wins, a value the person set stays.
+  if (!Object.keys(e).some((k) => k.toLowerCase() === 'psexecutionpolicypreference')) e.PSExecutionPolicyPreference = 'Bypass';
   return e;
 }
 export function engineCwd(cfg, home = os.homedir()) {
@@ -764,6 +792,7 @@ export function connect(cfg, dc, log = console.log) {
       return;
     }
     if (msg.type === 'notice') {
+      if (msg.kind === 'settings_changed') return; // the bridge's own notice, never from the relay
       if (['limit', 'expiring', 'expired'].includes(msg.kind) && cfg.notify?.limit === false) return;
       showNotice({ ...msg, renewUrl: msg.renewUrl ?? dc.plan?.renewUrl }, log);
       return;

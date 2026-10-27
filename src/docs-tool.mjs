@@ -14,7 +14,7 @@ import { pathToFileURL } from 'node:url';
 export async function lib(name) {
   try { return await import(name); } catch (e) {
     if (e?.code !== 'ERR_MODULE_NOT_FOUND') throw e;
-    const req = createRequire(createRequire(import.meta.url).resolve('@wonderwhy-er/desktop-commander/dist/index.js'));
+    const req = createRequire(createRequire(import.meta.url).resolve('bridgerator-engine/dist/index.js'));
     return import(pathToFileURL(req.resolve(name)).href);
   }
 }

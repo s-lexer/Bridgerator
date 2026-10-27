@@ -112,8 +112,10 @@ test('paused on the PC: calls are refused with a clear text and not counted; res
 });
 
 test('the file-preview widget is read from the PC', { skip: missing || false }, async () => {
-  const r = await relay.mcp(tok, 'resources/read', { uri: 'ui://desktop-commander/file-preview' });
-  assert.match(r.result.contents[0].text, /<html|<!doctype/i);
+  for (const uri of ['ui://bridgerator/file-preview', 'ui://desktop-commander/file-preview']) { // the old URI: cached lists
+    const r = await relay.mcp(tok, 'resources/read', { uri });
+    assert.match(r.result.contents[0].text, /<html|<!doctype/i, uri);
+  }
 });
 
 test('the link drops mid-call: ChatGPT gets "PC disconnected" at once, the bridge reconnects by itself and works again', { skip: missing || false }, async () => {

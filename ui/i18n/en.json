@@ -57,7 +57,9 @@
   "agoMin": "{n} min ago",
   "agoHour": "{n} h ago",
   "agoDay": "{n} d ago",
-  "step1": "Link this PC to your account",
+  "stepAllow": "Let ChatGPT work without asking each time",
+  "stepAllowHint": "In ChatGPT: Bridgerator → Permission → Allow all",
+  "stepAllowBtn": "Open",
   "step2": "Set up with ChatGPT",
   "step2Hint": "In ChatGPT, say:",
   "step2Phrase": "Set up Bridgerator",
@@ -274,6 +276,8 @@
   "sound": "Play a sound",
   "offline": "When the PC goes offline",
   "queueDone": "When a queue task is done",
+  "settingsChanged": "When the AI or the settings file changes Bridgerator settings",
+  "queueStalled": "When a queue task stalls (ChatGPT may be waiting for your OK or show an error in the chat)",
   "limit": "Monthly limit warnings",
   "preview": "Preview",
   "light": "Light",
@@ -364,7 +368,8 @@
      "Add tasks here, or ask ChatGPT to plan the work and add the steps itself.",
      "Attach files or folders to a task so ChatGPT knows where to look.",
      "In ChatGPT, say “Work through my Bridgerator queue”. Watch the ticks appear here.",
-     "Edit, reorder or delete tasks any time. A failed task shows why it failed."
+     "Edit, reorder or delete tasks any time. A failed task shows why it failed.",
+     "ChatGPT may ask you to allow an action in the chat; the task waits for your answer. If a task stalls, Bridgerator shows a notice. \"Selected model is at capacity\" is ChatGPT's own error: press Retry in the chat or pick another model; the queue keeps its place."
     ],
     "tipLabel": "say",
     "tip": "Work through my Bridgerator queue"

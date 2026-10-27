@@ -21,11 +21,11 @@ export const DEFAULTS = {
   preset: 'full', terminal: true, allowedDirectories: [], readOnlyDirectories: [], protectSensitive: false,
   confirm: { enabled: false, ...readSettings('').ask, timeoutSeconds: 120 },   // no confirm.ini = the defaults per category
   recycleBin: true, snapshots: { ...SNAP_DEFAULTS }, fuse: { ...FUSE_DEFAULTS }, keepAwake: true, askSettings: false,
-  theme: 'system', language: 'en', popupStyle: 'toast', notify: { sound: true, offline: true, queueDone: true, limit: true },
+  theme: 'system', language: 'en', popupStyle: 'toast', notify: { sound: true, offline: true, queueDone: true, queueStalled: true, settingsChanged: true, limit: true },
   deviceName: '', autostart: true, localHistory: false, telemetryEnabled: true,
   ...EXTRA.defaults(),
 };
-const NOTIFY = ['sound', 'offline', 'queueDone', 'limit'];
+const NOTIFY = ['sound', 'offline', 'queueDone', 'queueStalled', 'settingsChanged', 'limit'];
 const dirs = { type: 'array', maxItems: 20, items: { type: 'string' } };
 export const SETTINGS_TOOL_DEF = {
   name: 'bridgerator_settings',
@@ -114,6 +114,7 @@ export function widens(cur, { key, value }) {
   if (key === 'fuse.enabled') return !value && fuse.enabled;
   if (key === 'fuse.limit') return fuse.enabled && value > fuse.limit;
   if (key === 'askSettings') return !value && cur.askSettings === true;
+  if (key === 'notify.settingsChanged') return !value && cur.notify?.settingsChanged !== false; // the person's view of AI changes
   if (key === 'keepAwake' || key === 'preset') return false;                     // preset: judged by its parts (presetChanges)
   if (key === 'autostart') return value !== cur.autostart;
   if (key === 'telemetryEnabled') return value && !cur.telemetry;

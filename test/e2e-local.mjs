@@ -1,6 +1,6 @@
-// End-to-end check against the REAL bundled Desktop Commander (also part of `npm test`):
+// End-to-end check against the REAL bundled engine (also part of `npm test`):
 //   node test/e2e-local.mjs
-// Proves isolation: a Desktop Commander config the user already has must stay byte-identical.
+// Proves isolation: an engine config the user already has (own copy of the engine) must stay byte-identical.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -25,8 +25,8 @@ const before = fs.existsSync(userDc) ? fs.readFileSync(userDc, 'utf8') : null;
 const userHist = path.join(realHome, '.claude-server-commander', 'tool-history.jsonl');
 const histBefore = fs.existsSync(userHist) ? fs.statSync(userHist).size : -1;
 
-const { startDesktopCommander } = await import('../src/bridge.mjs');
-const dc = await startDesktopCommander({ allowedDirectories: [work], deniedDirectories: [secret], dcConfigDir: path.join(prof, 'dc') }, () => {});
+const { startEngine } = await import('../src/bridge.mjs');
+const dc = await startEngine({ allowedDirectories: [work], deniedDirectories: [secret], dcConfigDir: path.join(prof, 'dc') }, () => {});
 const text = (r) => (r.content || []).map((c) => c.text).join('\n');
 try {
   assert.ok(!dc.tools.some((t) => t.name === 'set_config_value'), 'set_config_value must be hidden');
@@ -35,16 +35,18 @@ try {
 
   assert.match(text(await dc.call('read_file', { path: path.join(work, 'notes.txt') })), /needle in notes/);
   // MCP Apps widgets of the original plugin: tools keep their ui:// template, resources are served.
-  assert.equal(dc.tools.find((t) => t.name === 'read_file')?._meta?.['openai/outputTemplate'], 'ui://desktop-commander/file-preview');
-  assert.ok(dc.resources.some((r) => r.uri === 'ui://desktop-commander/file-preview'));
-  const w = await dc.readResource('ui://desktop-commander/file-preview');
+  assert.equal(dc.tools.find((t) => t.name === 'read_file')?._meta?.['openai/outputTemplate'], 'ui://bridgerator/file-preview');
+  assert.ok(dc.resources.some((r) => r.uri === 'ui://bridgerator/file-preview'));
+  const w = await dc.readResource('ui://bridgerator/file-preview');
   assert.match(w.result.contents[0].text, /<html|<!doctype/i);
   assert.equal((await dc.readResource('file:///etc/passwd')).error, 'unknown resource');
   // No trace of the bundled engine's brand or site in anything the user/assistant sees.
   assert.doesNotMatch(JSON.stringify(dc.tools), /Desktop ?Commander|"DC: |desktopcommander\.app/);
-  assert.doesNotMatch(JSON.stringify(dc.resources), /Desktop Commander/);
+  assert.doesNotMatch(JSON.stringify(dc.resources), /Desktop Commander|desktop-commander/);
+  assert.doesNotMatch(JSON.stringify(dc.tools), /desktop-commander/, 'widget URIs carry our name');
+  assert.doesNotMatch(w.result.contents[0].text, /desktop-commander/, 'widget page: no engine name');
   assert.doesNotMatch(w.result.contents[0].text, /Desktop Commander|desktopcommander\.app/);
-  // Desktop Commander's default command blocklist stays in force (we don't replace it).
+  // The engine's default command blocklist stays in force (we don't replace it).
   const cfgNow = text(await dc.client.callTool({ name: 'get_config', arguments: {} }));
   for (const c of ['reg', 'net', 'runas', 'diskpart']) assert.ok(cfgNow.includes(JSON.stringify(c)), 'default blockedCommands keeps ' + c);
   assert.match(text(await dc.call('read_file', { path: path.join(secret, 'deep', 'pw.txt') })), /excluded/);
@@ -67,7 +69,7 @@ try {
   assert.match(text(await dc.call('start_process', { command: `Get-Content "${path.join(secret, 'deep', 'pw.txt')}"`, timeout_ms: 5000 })), /excluded/);
   assert.match(text(await dc.call('set_config_value', { key: 'allowedDirectories', value: [] })), /disabled/);
   assert.ok(fs.existsSync(path.join(prof, 'dc', 'config.json')), 'bridge DC config written to its own folder');
-  assert.equal(fs.existsSync(userDc) ? fs.readFileSync(userDc, 'utf8') : null, before, 'user Desktop Commander config must be untouched');
+  assert.equal(fs.existsSync(userDc) ? fs.readFileSync(userDc, 'utf8') : null, before, 'the user\'s own engine config must be untouched');
   assert.equal(fs.existsSync(userHist) ? fs.statSync(userHist).size : -1, histBefore, 'user engine tool history untouched');
   // Remote feature flags (welcome page, promo injections) never fetched: the cache holds our empty set.
   const flags = path.join(prof, 'dc', 'feature-flags.json');

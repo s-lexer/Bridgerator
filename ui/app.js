@@ -171,6 +171,9 @@ function awakeLine() {
   const k = s.keepAwake === false ? 'status.awakeOff' : a.on ? 'status.awakeOn' : a.want && !a.ac ? 'status.awakeBattery' : 'status.awakeIdle';
   return `<div class="awake-line ${a.on ? 'on' : ''}"><span class="dot ${a.on ? 'online' : 'offline'}"></span>${esc(t(k))}</div>`;
 }
+// The Bridgerator app's "Permission" page in ChatGPT (App ID of the store app). Owner 26.10: on first use ChatGPT
+// asks before most actions ("Allow low-risk"); one switch to "Allow all" stops that.
+const CHATGPT_PERMISSIONS = 'https://chatgpt.com/settings/plugins-settings/plugin_asdk_app_6ad78d4a3c408191a9215fd304394c4a/permissions';
 P.home = () => {
   const st = state.state || 'offline';
   const c = state.queue || {};
@@ -193,7 +196,7 @@ P.home = () => {
  <a class="card tile" href="#recent"><span class="k">${esc(t('status.cardLast'))}</span><span class="v">${esc(last ? ago(last.t) : t('status.never'))}</span><span class="s" title="${esc(last ? `${last.tool} · ${last.target}` : '')}">${esc(last ? [last.tool, lastTarget(last.target)].filter(Boolean).join(' · ') : t('status.noActions'))}</span></a>
 </div>
 <section class="card steps" aria-label="${esc(t('aria.getStarted'))}">
- <div class="step ok"><span class="check ok">${CHECK(12, 3.5)}</span><span class="grow t">${esc(t('status.step1'))}</span></div>
+ <div class="step ${state.allowOpened ? 'ok' : ''}"><span class="check ${state.allowOpened ? 'ok' : 'next'}">${state.allowOpened ? CHECK(12, 3.5) : ''}</span><div class="stack"><span class="t">${esc(t('status.stepAllow'))}</span>${state.allowOpened ? '' : `<span class="h">${esc(t('status.stepAllowHint'))}</span>`}</div>${state.allowOpened ? '' : `<button class="btn btn-secondary w112" data-act="chatgptAllow">${esc(t('status.stepAllowBtn'))}</button>`}</div>
  <div class="step ${state.setupDone ? 'ok' : ''}"><span class="check ${state.setupDone ? 'ok' : 'next'}">${state.setupDone ? CHECK(12, 3.5) : ''}</span><div class="stack"><span class="t">${esc(t('status.step2'))}</span>${state.setupDone ? '' : `<span class="h">${esc(t('status.step2Hint'))} <span class="mono">${esc(t('status.step2Phrase'))}</span></span>`}</div>${state.setupDone ? '' : `<button class="btn btn-secondary w112" data-copy="${esc(t('status.step2Phrase'))}">${esc(t('status.copyPhrase'))}</button>`}</div>
  <div class="step ${anyTodo ? 'ok' : ''}"><span class="check ${anyTodo ? 'ok' : state.setupDone ? 'next' : ''}">${anyTodo ? CHECK(12, 3.5) : ''}</span><div class="stack"><span class="t">${esc(t('status.step3'))}</span>${anyTodo ? '' : `<span class="h">${esc(t('status.step3Hint'))} <span class="mono">${esc(t('talk.work'))}</span></span>`}</div>${anyTodo ? '' : `<a class="btn btn-secondary w112" href="#queue">${esc(t('status.openQueue'))}</a>`}</div>
 </section></main>`;
@@ -331,7 +334,7 @@ P.notifications = () => {
   return `<main class="notifications">${bannerHtml()}
 <div class="head"><h1>${esc(t('notify.title'))}</h1><div class="sub">${esc(t('notify.sub'))}</div></div>
 <div class="styles" role="radiogroup" aria-label="${esc(t('aria.style'))}">${style('toast')}${style('popup')}</div>
-<div class="nsplit"><section class="card" aria-label="${esc(t('aria.options'))}">${sw('sound', 'notify.sound')}${sw('offline', 'notify.offline')}${sw('queueDone', 'notify.queueDone')}${sw('limit', 'notify.limit')}</section>
+<div class="nsplit"><section class="card" aria-label="${esc(t('aria.options'))}">${sw('sound', 'notify.sound')}${sw('offline', 'notify.offline')}${sw('queueDone', 'notify.queueDone')}${sw('queueStalled', 'notify.queueStalled')}${sw('settingsChanged', 'notify.settingsChanged')}${sw('limit', 'notify.limit')}</section>
 <section class="preview" aria-label="${esc(t('notify.preview'))}"><div class="bar-top"><span class="b">${esc(t('notify.preview'))}</span><div class="seg" role="radiogroup" aria-label="${esc(t('aria.previewTheme'))}">${pv('light')}${pv('dark')}</div></div>
 <div class="toast ${previewTheme}"><div class="app">${LOGO16}<span class="grow">Bridgerator</span><span>⋯</span></div><div class="h">${esc(t('notify.pHead'))}</div><div class="c">${esc(t('notify.pCmd'))}</div><div class="m">${esc(t('notify.pMeta', { name: state.name || 'PC' }))}</div>
 <div class="btns"><span>${esc(t('notify.allow'))}</span><span>${esc(t('notify.allow10'))}</span><span>${esc(t('notify.deny'))}</span></div></div>
@@ -788,6 +791,7 @@ document.addEventListener('click', async (e) => {
     case 'support': return rpc('openUrl', { url: 'https://bridgerator.recondeck.com/support' }).catch(fail);
     case 'plan': return rpc('openUrl', { url: state.banner?.url || state.plan?.renewUrl || 'https://bridgerator.recondeck.com/app' }).catch(fail);
     case 'dismissBanner': return rpc('dismissBanner').then(() => refresh(), fail);
+    case 'chatgptAllow': return rpc('openUrl', { url: CHATGPT_PERMISSIONS }).then(() => rpc('chatgptAllowOpened')).then(() => refresh(), fail);
     case 'pause': case 'resume': return rpc(d.act).then(() => refresh(), fail);
     case 'addTask': return taskDialog(null);
     case 'allowAll': return setSetting('allowedDirectories', []);

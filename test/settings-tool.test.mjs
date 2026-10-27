@@ -38,3 +38,10 @@ test('B1-21: a preset is expanded against the folder list of the same request', 
   assert.deepEqual(out.at(-1), { key: 'readOnlyDirectories', value: [A] }, 'the new folder, not every drive');
   assert.deepEqual(out[0], { key: 'allowedDirectories', value: [A] });
 });
+
+test('turning the settings-changed notice off is a lowering (asks with askSettings on); on is not (review 26.10)', async () => {
+  const { widens } = await import('../src/settings-tool.mjs');
+  assert.equal(widens({ notify: { settingsChanged: true } }, { key: 'notify.settingsChanged', value: false }), true);
+  assert.equal(widens({ notify: { settingsChanged: false } }, { key: 'notify.settingsChanged', value: true }), false);
+  assert.equal(widens({ notify: { sound: true } }, { key: 'notify.sound', value: false }), false);
+});

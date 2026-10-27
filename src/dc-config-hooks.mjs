@@ -25,7 +25,7 @@ const PATCHES = [
   { file: /[\\/]dist[\\/]terminal-manager\.js$/, from: "args: ['-Command', command],", to: "args: ['-Command', '[Console]::OutputEncoding=[Text.Encoding]::UTF8;' + command]," },
   { file: /[\\/]dist[\\/]index\.js$/, from: '            ensureChromeAvailable();\n', to: '            // bridgerator: no Chrome pre-download\n' },
 ];
-const ENGINE = /[\\/]@wonderwhy-er[\\/]desktop-commander[\\/]dist[\\/]/;
+const ENGINE = /[\\/]bridgerator-engine[\\/]dist[\\/]/; // the bundled engine, installed under our own name (owner 26.10)
 
 export async function load(url, context, nextLoad) {
   const r = await nextLoad(url, context);

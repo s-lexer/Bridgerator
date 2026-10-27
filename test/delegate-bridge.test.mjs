@@ -28,7 +28,7 @@ const DIR = path.join(fx.appData, 'Bridgerator');
 const work = path.join(root, 'Работа', 'Отчёт');
 for (const d of [DIR, work]) fs.mkdirSync(d, { recursive: true });
 
-const { startDesktopCommander } = await import('../src/bridge.mjs');
+const { startEngine } = await import('../src/bridge.mjs');
 const { ensureIni } = await import('../src/confirm.mjs');
 const CONFIG = path.join(DIR, 'config.json'), INI = path.join(DIR, 'confirm.ini');
 const base = { askSettings: true, relay: 'wss://relay.invalid/link', token: 'brk_test_key_0123456789', allowedDirectories: [], deniedDirectories: [], readOnlyDirectories: [], telemetryEnabled: false, localHistory: false, setupDone: true, protectSensitive: false };
@@ -43,7 +43,7 @@ const body = (r) => JSON.parse(r.content[0].text);
 const waitFor = async (fn, ms = 10000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await new Promise((r) => setTimeout(r, 50)); } return false; };
 
 before(async () => {
-  dc = await startDesktopCommander({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG, snapshotsDir: path.join(fx.local, 'Bridgerator', 'snapshots') }, () => {},
+  dc = await startEngine({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG, snapshotsDir: path.join(fx.local, 'Bridgerator', 'snapshots') }, () => {},
     { ask: async (q) => { asked.push(q); return answer; }, delegate: { env: fx.env, home: fx.home } });
   dc.onEvent = (e) => events.push(e);
 });

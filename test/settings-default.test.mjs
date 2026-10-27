@@ -25,7 +25,7 @@ const DIR = path.join(APPDATA, 'Bridgerator');
 const work = path.join(root, 'Работа');
 for (const d of [DIR, work]) fs.mkdirSync(d, { recursive: true });
 
-const { startDesktopCommander } = await import('../src/bridge.mjs');
+const { startEngine } = await import('../src/bridge.mjs');
 const { ensureIni, readSettings } = await import('../src/confirm.mjs');
 const CONFIG = path.join(DIR, 'config.json'), INI = path.join(DIR, 'confirm.ini');
 const base = { relay: 'wss://relay.invalid/link', token: 't', allowedDirectories: [work], deniedDirectories: [], readOnlyDirectories: [work], telemetryEnabled: false, localHistory: false, setupDone: false };
@@ -37,7 +37,7 @@ let dc;
 const text = (r) => (r.content || []).map((c) => c.text).join('\n');
 const conf = () => JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
 before(async () => {
-  dc = await startDesktopCommander({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG }, () => {},
+  dc = await startEngine({ ...base, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG }, () => {},
     { ask: async (q) => { asked.push(q); return 'deny'; } });
   dc.hooks = { autostart: async () => {} };
 });
