@@ -9,12 +9,12 @@ import { createRequire } from 'node:module';
 import WebSocket from 'ws';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { createPolicy, debrand, debrandResult, ourUi, engineUi, TERMINAL_TOOLS, ALWAYS_HIDDEN } from './policy.mjs';
+import { createPolicy, debrand, debrandResult, ourUi, engineUi, TERMINAL_TOOLS, ALWAYS_HIDDEN, widgetCallable, fixWidgetHtml } from './policy.mjs';
 import { showNotice } from './notice.mjs';
 import { usage } from './telemetry.mjs';
-import { createGate, askOnPc, CONFIRM_TOOL_DEFS } from './confirm.mjs';
+import { createGate, askOnPc, CONFIRM_TOOL_DEFS, setIniPatterns } from './confirm.mjs';
 import { SETUP_TOOL_DEF, validateSetup, diffSetup, applySetup, terminalTools } from './setup-tool.mjs';
-import { SETTINGS_TOOL_DEF, validateSettings, widens, describe, DEFAULTS, presetOf, presetChanges, expandPresets } from './settings-tool.mjs';
+import { SETTINGS_TOOL_DEF, validateSettings, widens, describe, DEFAULTS, LINE_LIMITS, SHELLS, presetOf, presetChanges, expandPresets } from './settings-tool.mjs';
 import { shorten } from './tool-text.mjs';
 import { parseDelete, recycle as recycleOnPc, purgeFromBin } from './recycle.mjs';
 import { createSnapshots, changedPaths, undoGroups, SNAP_DEFAULTS, UNDO_TOOL_DEF } from './undo.mjs';
@@ -103,7 +103,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
       const timer = setTimeout(() => { if (pendingSetup?.id === id) { pendingSetup = null; resolve('deny'); } }, 10 * 60000);
       pendingSetup = { id, lines: q.lines, resolve: (k) => { clearTimeout(timer); pendingSetup = null; resolve(k); } };
       out.openWindow?.('home');
-      ask0({ head: 'ChatGPT suggests Bridgerator settings', text: 'Too many changes for a notification — review them in the Bridgerator window.', buttons: [['deny', 'Cancel', 'deny']], secs: 120, auto: 'closes', ...out.popup() })
+      ask0({ head: 'ChatGPT wants to change Bridgerator settings', text: 'Too many changes for a notification — review them in the Bridgerator window.', buttons: [['deny', 'Cancel', 'deny']], secs: 120, auto: 'closes', ...out.popup() })
         .then((k) => { if (k === 'deny' && pendingSetup?.id === id && Date.now() - Number.parseInt(id.slice(1), 36) < 115000) pendingSetup.resolve('deny'); });
     });
   };
@@ -137,8 +137,17 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
   // (set_config_value is never exposed to the relay, see policy.ALWAYS_HIDDEN).
   const set = (key, value) => client.callTool({ name: 'set_config_value', arguments: { key, value } });
   await set('allowedDirectories', cfg.allowedDirectories || []);
-  if (Array.isArray(cfg.blockedCommands)) await set('blockedCommands', cfg.blockedCommands);
+  const fileOk = (k) => cfg[k] !== undefined && !validateSettings({ [k]: cfg[k] }).error; // config.json is hand-editable (review R8)
+  if (fileOk('blockedCommands')) await set('blockedCommands', cfg.blockedCommands);
   await set('telemetryEnabled', false);
+  // Line limits: bridgerator_settings (the engine's own set_config_value is hidden, so its config widget is read-only).
+  const lineLimit = (k) => (fileOk(k) ? cfg[k] : DEFAULTS[k]);
+  for (const k of Object.keys(LINE_LIMITS)) await set(k, lineLimit(k));
+  const shell = () => (SHELLS.includes(cfg.defaultShell) ? cfg.defaultShell : DEFAULTS.defaultShell);
+  await set('defaultShell', shell());
+  // blockedCommands: the person's list, else the engine's own defaults (read once; the AI may change it, owner 27.10).
+  // null = could not be read (then it can't be changed: an empty list would silently drop the defaults, review R9).
+  let blocked = fileOk('blockedCommands') ? cfg.blockedCommands : ((await client.callTool({ name: 'get_config', arguments: {} }).catch(() => null))?.structuredContent?.config?.blockedCommands ?? null);
   // The Bridgerator folder (key, confirm.ini) is always excluded, also when it was moved (BRIDGERATOR_HOME).
   // Relative paths are checked where the engine opens them: its working directory (engineDir).
   const makePolicy = () => createPolicy({ ...cfg, cwd: engineDir, deniedDirectories: [...(cfg.deniedDirectories || []), ...(cfg.configDir ? [cfg.configDir] : [])] });
@@ -148,12 +157,16 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
   const extra = createExtra();
   // Short plain descriptions (tool-text.mjs). The terminal tools are always listed: the access preset
   // turns them off by refusing calls, so switching back needs no restart.
-  const listed = (t) => policy.visible(t) || (TERMINAL_TOOLS.includes(t.name) && !ALWAYS_HIDDEN.includes(t.name));
+  // Turned-off tools (disabledTools) stay LISTED and are refused at call time, so turning one back on needs no restart.
+  const listed = (t) => !ALWAYS_HIDDEN.includes(t.name);
   // Snapshots + Undo (on by default) in %LOCALAPPDATA%\Bridgerator\snapshots (given by the CLI).
   const snapCfg = () => ({ ...SNAP_DEFAULTS, ...(cfg.snapshots || {}) });
   const snapshots = cfg.snapshotsDir ? createSnapshots(cfg.snapshotsDir, { limits: snapCfg, log }) : null;
-  const visible = [...tools.filter(listed).map(debrand), ...CONFIRM_TOOL_DEFS, SETUP_TOOL_DEF, ...(cfg.configFile ? [SETTINGS_TOOL_DEF] : []), ...(cfg.configDir ? QUEUE_TOOL_DEFS : []), ...(snapshots ? [UNDO_TOOL_DEF] : []), ...extra.defs.filter(policy.visible)].map(shorten).map(ourUi);
+  const visible = [...tools.filter(listed).map(debrand), ...CONFIRM_TOOL_DEFS, SETUP_TOOL_DEF, ...(cfg.configFile ? [SETTINGS_TOOL_DEF] : []), ...(cfg.configDir ? QUEUE_TOOL_DEFS : []), ...(snapshots ? [UNDO_TOOL_DEF] : []), ...extra.defs.filter(listed)].map(shorten).map(ourUi).map(widgetCallable);
   const virtual = new Set(CONFIRM_TOOL_DEFS.map((t) => t.name));
+  // Tools disabledTools can turn off: the engine's and the extra tools (both refused by the policy). The bridge's own
+  // (settings, setup, confirm, queue, undo) are dispatched before the policy, so they are not switchable (review R3).
+  const switchable = new Set([...tools.map((t) => t.name), ...extra.defs.map((t) => t.name)].filter((n) => !ALWAYS_HIDDEN.includes(n)));
   // namePending: a computer name given on this PC not yet accepted by the relay — kept in config.json too,
   // so a restart before the next link does not lose it; cleared by nameSent() (welcome / live mode message).
   const out = { onMode: () => {}, paused: false, linkState: 'offline', linkName: '', nameGen: 0, namePending: typeof cfg.namePending === 'string' ? cfg.namePending : '' };
@@ -179,7 +192,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
   const batch = attachBatch(cfg, createBatch({ openWindow: (p) => out.openWindow?.(p), log }));
   // AI ↔ AI delegation (bridgerator_delegate, window page Agents). LOGIC: critical-logic/bridge.md ("AI ↔ AI delegation").
   const delegate = attachDelegate(cfg, createDelegate({ file: cfg.configDir ? path.join(cfg.configDir, 'delegate.json') : '', snapshots, log, emit: (e) => out.onEvent?.(e), ...(delegateOpts || {}) }));
-  const mode = () => ({ confirm: gate.mode(), readOnly: cfg.readOnlyDirectories || [], setupDone: cfg.setupDone === true, queue: queueCounts(), paused: out.paused, ...(autos ? { automations: autos.counts() } : {}) });
+  const mode = () => ({ version: VERSION, confirm: gate.mode(), readOnly: cfg.readOnlyDirectories || [], setupDone: cfg.setupDone === true, queue: queueCounts(), paused: out.paused, ...(autos ? { automations: autos.counts() } : {}) });
   // confirm.ini is re-read on every call; a change of on/off is reported to the relay.
   const gate = createGate({
     ini: cfg.confirmIni,
@@ -269,7 +282,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
     const diff = diffSetup(cfg, cfg.confirmIni, v.value);
     let r;
     if (diff.short.length <= 180) {
-      r = await gate.askPerson('setup', { head: 'ChatGPT suggests Bridgerator settings', text: diff.short, buttons: [['allow', 'Apply', ''], ['deny', 'Cancel', 'deny']], secs: 120, auto: 'auto-cancel', ...popup() });
+      r = await gate.askPerson('setup', { head: 'ChatGPT wants to change Bridgerator settings', text: diff.short, buttons: [['allow', 'Apply', ''], ['deny', 'Cancel', 'deny']], secs: 120, auto: 'auto-cancel', ...popup() });
     } else {
       r = await gate.askPerson('setup', { review: true, lines: diff.lines });
     }
@@ -282,6 +295,17 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
   // At most MAX_CALLS calls run at once (several chats on one PC); the rest wait up to 30 s, then get
   // a "busy" answer (flag busy: the relay doesn't count it).
   const { slot, release } = createLimiter(MAX_CALLS, BUSY_WAIT_MS);
+  // update (owner 27.10: the AI may update Bridgerator): the window's Update button — the newest version on our site.
+  let updating = false;
+  async function updateNow() {
+    if (updating) return 'An update is already starting.';
+    let c;
+    try { c = await rpc('checkUpdate'); } catch (e) { return `Could not check for updates: ${e?.message || e}`; }
+    if (c.upToDate) return `Bridgerator ${c.current} is up to date.`;
+    updating = true;
+    try { await rpc('update', { version: c.latest }); } catch (e) { updating = false; return `The update did not start: ${e?.message || e}`; }
+    return `Updating Bridgerator ${c.current} → ${c.latest}: it restarts by itself in about a minute; this chat's tools come back after that.`;
+  }
   // bridgerator_settings: get everything; set → applied at once (askSettings on: lowering protection after Apply on the PC).
   async function settingsTool(args = {}) {
     const snap = async () => (await rpc('getState')).settings;
@@ -289,6 +313,11 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
     if (args.action !== 'set') return say('action must be "get" or "set"', true);
     const v = validateSettings(args.settings);
     if (v.error) return say(`Not changed: ${v.error}`, true);
+    const offList = v.changes.find((c) => c.key === 'disabledTools')?.value || [];
+    const unknownTools = offList.filter((n) => !switchable.has(n));
+    if (unknownTools.length) return say(`Not changed: unknown or not switchable tool(s): ${unknownTools.join(', ')}`, true);
+    out.updateMsg = '';
+    const updated = (r) => (out.updateMsg ? say(`${r.content[0].text}. ${out.updateMsg}`, !!r.isError) : r);
     const cur = await snap();
     v.changes = expandPresets(v.changes, cur, drives());
     // Owner 21.10: everything applies at once unless "Ask before AI changes settings" is on (then only lowering protection asks).
@@ -300,12 +329,12 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
     const apply = async (list) => { const ok = []; try { for (const c of list) { await rpc('setSetting', { ...c, via: 'bridgerator_settings' }); if (real(c)) ok.push(describe(cur, c)); } } finally { toldSettings('ai', ok, on); } };
     await apply(safe);
     const done = safe.map((c) => describe(cur, c));
-    if (!risky.length) return say(`Applied: ${done.join('; ')}`);
+    if (!risky.length) return updated(say(`Applied: ${done.join('; ')}`));
     const lines = risky.map((c) => describe(cur, c)), short = lines.join(' · ');
     const r = short.length <= 180
       ? await gate.askPerson('settings', { head: 'ChatGPT wants to change Bridgerator settings', text: short, buttons: [['allow', 'Apply', ''], ['deny', 'Cancel', 'deny']], secs: 120, auto: 'auto-cancel', ...popup() })
       : await gate.askPerson('settings', { review: true, lines });
-    if (r === 'allow') { await apply(risky); return say(`Applied${done.length ? `: ${done.join('; ')};` : ':'} after the person's OK: ${lines.join('; ')}`); }
+    if (r === 'allow') { await apply(risky); return updated(say(`Applied${done.length ? `: ${done.join('; ')};` : ':'} after the person's OK: ${lines.join('; ')}`)); }
     return { ...say(`${done.length ? `Applied: ${done.join('; ')}. ` : ''}Not applied (the person at the PC ${r === 'cooldown' ? 'declined a few minutes ago' : 'cancelled or didn\'t answer'}): ${lines.join('; ')}`), notConfirmed: true };
   }
 
@@ -496,12 +525,13 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
   // What bridgerator_settings get shows: the names "set" takes.
   const toolView = (s) => {
     const { confirm, telemetry, ...rest } = s;
-    return { ...rest, confirm: { enabled: confirm.enabled, ...confirm.ask, timeoutSeconds: confirm.timeoutSec }, telemetryEnabled: telemetry };
+    return { ...rest, confirm: { enabled: confirm.enabled, ...confirm.ask, timeoutSeconds: confirm.timeoutSec, patterns: (confirm.patterns || []).map((r) => r.source) }, telemetryEnabled: telemetry };
   };
   async function readResource(uri) {
     // The old widget URI still works: ChatGPT and the relay's offline list may have cached it.
     if (!resourceUris.has(ourUi(String(uri)))) return { error: 'unknown resource' };
-    try { return { result: ourUi(debrand(await client.readResource({ uri: engineUi(uri) }))) }; } catch (e) { return { error: String(e?.message || e) }; }
+    const fix = (r) => ({ ...r, contents: (r.contents || []).map((c) => (typeof c?.text === 'string' ? { ...c, text: fixWidgetHtml(c.text) } : c)) });
+    try { return { result: fix(ourUi(debrand(await client.readResource({ uri: engineUi(uri) })))) }; } catch (e) { return { error: String(e?.message || e) }; }
   }
   // Requests of the Bridgerator window (tray helper). Made by the person at the PC: no extra prompt.
   // Theme for our pop-ups = the window's theme (Settings → Appearance); sound / style from Notifications.
@@ -528,6 +558,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
             autostart: cfg.autostart !== false, deviceName: cfg.deviceName || out.linkName || '',
             preset: presetOf(accessState(), drives()), terminal: terminalOn(), protectSensitive: cfg.protectSensitive !== false,
             recycleBin: cfg.recycleBin !== false, snapshots: snapCfg(), fuse: fuseCfg(), keepAwake: cfg.keepAwake !== false, askSettings: cfg.askSettings === true,
+            fileReadLineLimit: lineLimit('fileReadLineLimit'), fileWriteLineLimit: lineLimit('fileWriteLineLimit'), defaultShell: shell(), blockedCommands: blocked || [], disabledTools: cfg.disabledTools || [],
             ...extra.values(cfg),
           },
           // Labels of the extra tools' settings for the window (Settings → Tools): extra-tools.mjs.
@@ -551,6 +582,12 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
         // confirm.ini held by another program (V-9): nothing changes, the person is told (notice + the window's message).
         const iniWrite = (sec, k, v) => { try { setIni(cfg.confirmIni, sec, k, v); } catch (e) { log(`[bridgerator] confirm.ini not written (${e.code || e.message}) — setting unchanged`); showNotice({ kind: 'confirm_locked' }, log); throw new Error('CONFIRM_LOCKED'); } };
         if (m && (m[1] === 'enabled' || CATEGORIES.includes(m[1])) && typeof value === 'boolean') { iniWrite(m[1] === 'enabled' ? 'confirm' : 'ask', m[1], String(value)); gate.accept({ [m[1]]: value }); return true; }
+        if (key === 'confirm.patterns') {
+          const v = validateSettings({ confirm: { patterns: value } });
+          if (v.error) throw new Error(v.error);
+          try { setIniPatterns(cfg.confirmIni, v.changes[0].value); } catch (e) { log(`[bridgerator] confirm.ini not written (${e.code || e.message}) — setting unchanged`); showNotice({ kind: 'confirm_locked' }, log); throw new Error('CONFIRM_LOCKED'); }
+          gate.accept({ patterns: v.changes[0].value }); return true;
+        }
         if (key === 'confirm.timeout' && [60, 120, 300].includes(value)) { iniWrite('confirm', 'timeout_seconds', String(value)); return true; }
         if (key === 'allowedDirectories' || key === 'readOnlyDirectories') {
           const v = validateSetup({ [key]: value });
@@ -578,6 +615,24 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
           patchConfig({ [g[1]]: { ...(g[1] === 'fuse' ? fuseCfg() : snapCfg()), [g[2]]: value } });
           if (g[1] === 'snapshots') snapshots?.prune(); else fuse.reset();
           return true;
+        }
+        if (key === 'blockedCommands' || key === 'disabledTools') {
+          const v = validateSettings({ [key]: value });
+          if (v.error) throw new Error(v.error);
+          const list = v.changes[0].value;
+          if (key === 'disabledTools') {
+            const bad = list.filter((n) => !switchable.has(n));
+            if (bad.length) throw new Error(`unknown or not switchable tool(s): ${bad.join(', ')}`);
+            patchConfig({ disabledTools: list }); policy = makePolicy(); out.onMode(mode()); return true;
+          }
+          if (blocked === null) throw new Error('the current blocked-commands list could not be read at start — restart Bridgerator first');
+          patchConfig({ blockedCommands: list }); blocked = list; await set('blockedCommands', list); return true;
+        }
+        if (key === 'update' && value === true) { out.updateMsg = await updateNow(); return true; }
+        if (LINE_LIMITS[key] || key === 'defaultShell') {
+          const v = validateSettings({ [key]: value });
+          if (v.error) throw new Error(v.error);
+          patchConfig({ [key]: value }); await set(key, value); return true;
         }
         if (extra.set(cfg, key, value, patchConfig)) return true;
         throw new Error(`unknown setting ${key}`);
@@ -646,6 +701,9 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
     want('terminal', !list(j.disabledTools).includes('start_process'), cur.terminal);
     for (const k of ['protectSensitive', 'recycleBin', 'keepAwake']) want(k, j[k] !== false, cur[k]);
     want('askSettings', j.askSettings === true, cur.askSettings === true);
+    for (const k of [...Object.keys(LINE_LIMITS), 'defaultShell']) want(k, j[k] ?? DEFAULTS[k], cur[k]);
+    if (Array.isArray(j.blockedCommands)) want('blockedCommands', list(j.blockedCommands), cur.blockedCommands);
+    want('disabledTools', list(j.disabledTools), cur.disabledTools);
     want('localHistory', j.localHistory === true, cur.localHistory);
     want('telemetryEnabled', j.telemetryEnabled !== false, cur.telemetry);
     want('theme', j.theme || j.popupTheme || 'system', cur.theme);

@@ -60,9 +60,6 @@
   "stepAllow": "Let ChatGPT work without asking each time",
   "stepAllowHint": "In ChatGPT: Bridgerator → Permission → Allow all",
   "stepAllowBtn": "Open",
-  "step2": "Set up with ChatGPT",
-  "step2Hint": "In ChatGPT, say:",
-  "step2Phrase": "Set up Bridgerator",
   "step3": "Give ChatGPT a list of tasks",
   "step3Hint": "Add tasks to the queue, then say:",
   "step3Phrase": "Work through my queue",
@@ -354,8 +351,8 @@
     "intro": "Bridgerator lets ChatGPT work with files and programs on this PC, inside the folders you allow.",
     "steps": [
      "Keep this PC on and Bridgerator running (green icon in the tray).",
-     "In ChatGPT, open Bridgerator from the apps menu.",
-     "Say “Set up Bridgerator”. ChatGPT asks a few questions and you confirm the settings here."
+     "In ChatGPT, turn Bridgerator on in Plugins (chatgpt.com/plugins).",
+     "Nothing to set up: it works with the defaults. To change something, just tell ChatGPT — the change applies at once."
     ],
     "tipLabel": "say",
     "tip": "Set up Bridgerator"
@@ -463,7 +460,7 @@
  "copied": "Copied",
  "error": "Something went wrong: {msg}",
  "setup": {
-  "title": "ChatGPT suggests Bridgerator settings",
+  "title": "ChatGPT wants to change Bridgerator settings",
   "text": "Nothing changes until you click Apply.",
   "apply": "Apply"
  },
@@ -473,7 +470,7 @@
   "intro": "Say these in any ChatGPT chat that has Bridgerator connected. Several chats can work at the same time.",
   "copy": "Copy",
   "setup": "Set up Bridgerator",
-  "setupHint": "ChatGPT asks a few questions and suggests settings; you confirm them on this PC.",
+  "setupHint": "ChatGPT shows how Bridgerator is set up and changes any setting you ask for; it applies at once.",
   "add": "Add these tasks to my Bridgerator queue: …",
   "addHint": "List the tasks after the colon, one per line.",
   "work": "Work through my Bridgerator queue",

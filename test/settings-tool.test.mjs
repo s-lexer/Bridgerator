@@ -13,7 +13,7 @@ const w = (key, value) => widens(cur, { key, value });
 
 test('bridgerator_settings: strict validation', () => {
   assert.deepEqual(validateSettings({ theme: 'dark', notify: { sound: false }, confirm: { delete: false } }).changes, [{ key: 'theme', value: 'dark' }, { key: 'notify.sound', value: false }, { key: 'confirm.delete', value: false }]);
-  for (const [bad, re] of [[{ blockedCommands: [] }, /unknown/], [{ deniedDirectories: [] }, /unknown/], [{ theme: 'pink' }, /one of/], [{ confirm: { nuke: true } }, /unknown/], [{ autostart: 'yes' }, /true or false/], [{ deviceName: 'x'.repeat(41) }, /40/], [{ allowedDirectories: ['\\\\srv\\x'] }, /network/], [{}, /nothing/]]) assert.match(validateSettings(bad).error, re, JSON.stringify(bad));
+  for (const [bad, re] of [[{ blockedCommands: 'rm' }, /list/], [{ confirm: { patterns: ['('] } }, /regular expressions/], [{ deniedDirectories: [] }, /unknown/], [{ theme: 'pink' }, /one of/], [{ confirm: { nuke: true } }, /unknown/], [{ autostart: 'yes' }, /true or false/], [{ deviceName: 'x'.repeat(41) }, /40/], [{ allowedDirectories: ['\\\\srv\\x'] }, /network/], [{}, /nothing/]]) assert.match(validateSettings(bad).error, re, JSON.stringify(bad));
 });
 
 test('what needs the person: lowering protection / widening access — and what does not', () => {
@@ -44,4 +44,15 @@ test('turning the settings-changed notice off is a lowering (asks with askSettin
   assert.equal(widens({ notify: { settingsChanged: true } }, { key: 'notify.settingsChanged', value: false }), true);
   assert.equal(widens({ notify: { settingsChanged: false } }, { key: 'notify.settingsChanged', value: true }), false);
   assert.equal(widens({ notify: { sound: true } }, { key: 'notify.sound', value: false }), false);
+});
+
+test('review R1/R2/R6: confirm patterns are one line, without nested repeats, and an unchanged list is not a removal', async () => {
+  const { safePattern } = await import('../src/settings-tool.mjs');
+  for (const bad of ['(a+)+$', '(\\w*)*x', '(x+){2,}', 'a\nb', 'a\r[confirm]', '(']) assert.equal(safePattern(bad), false, JSON.stringify(bad));
+  for (const ok of ['\\bgit\\s+push\\b', 'rm -rf', '(foo|bar)+', 'C:/Секрет']) assert.equal(safePattern(ok), true, ok);
+  assert.match(validateSettings({ confirm: { patterns: ['x\r\n[confirm]\r\nenabled = false'] } }).error, /one-line/);
+  const c = { ...cur, confirm: { ...cur.confirm, patterns: [new RegExp('a/b', 'i')] } };
+  assert.equal(widens(c, { key: 'confirm.patterns', value: ['a/b'] }), false, 'same pattern as written');
+  assert.equal(widens(c, { key: 'confirm.patterns', value: [] }), true);
+  assert.equal(widens(c, { key: 'update', value: true }), true, 'update asks when askSettings is on');
 });

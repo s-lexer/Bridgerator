@@ -17,7 +17,6 @@ const RU = {
   'ChatGPT wants to do something your rules ask about': 'ChatGPT хочет сделать то, о чём просят спрашивать ваши правила',
   'ChatGPT asks to stop confirming actions on this PC. Allow?': 'ChatGPT просит больше не спрашивать подтверждений на этом ПК. Разрешить?',
   'Bridgerator settings file changed': 'Файл настроек Bridgerator изменён',
-  'ChatGPT suggests Bridgerator settings': 'ChatGPT предлагает настройки Bridgerator',
   'ChatGPT wants to change Bridgerator settings': 'ChatGPT хочет изменить настройки Bridgerator',
   'ChatGPT scheduled a script on this PC': 'ChatGPT поставил сценарий на расписание на этом ПК',
   'Test notification': 'Пробное уведомление',
@@ -112,7 +111,7 @@ export function localizeAsk(q, lang) {
     ...q,
     head: ruText(q.head),
     // Change lines only in the settings question (never in a command or path the AI wrote).
-    text: q.head === 'ChatGPT wants to change Bridgerator settings' || q.head === 'ChatGPT suggests Bridgerator settings' ? ruLines(q.text) ?? ruText(q.text)
+    text: q.head === 'ChatGPT wants to change Bridgerator settings' ? ruLines(q.text) ?? ruText(q.text)
       : q.head === 'Bridgerator settings file changed' && /^Apply: (.+)\?$/s.test(q.text) ? `Применить: ${ruLines(q.text.slice(7, -1)) ?? q.text.slice(7, -1)}?` : ruText(q.text),
     buttons: (q.buttons || []).map(([k, label, kind]) => [k, ruText(label), kind]),
     auto: q.auto ? AUTO_RU[q.auto] || q.auto : q.auto,

@@ -138,6 +138,16 @@ export function writeTargets(s) {
   return out.slice(0, MAX_CMD_PATHS);
 }
 /** %VAR%, $env:VAR, ${env:VAR} and a leading ~ expanded with the real environment (case-insensitive names). */
+/** The command with every PowerShell -EncodedCommand payload decoded and appended (base64 of UTF-16LE), so the text
+ * checks read what really runs (review R5: the file-preview buttons and any model can send encoded commands). */
+export function withDecoded(s) {
+  if (typeof s !== 'string') return s;
+  const out = [s];
+  for (const m of s.matchAll(/(?:^|\s)[-/]e(?:c|nc|nco|ncod|ncode|ncoded|ncodedc|ncodedco|ncodedcom|ncodedcomm|ncodedcomma|ncodedcomman|ncodedcommand)?\s+["']?([A-Za-z0-9+/=]{8,})/gi)) {
+    try { out.push(Buffer.from(m[1], 'base64').toString('utf16le')); } catch { /* not base64: the text checks still see it */ }
+  }
+  return out.join('\n');
+}
 export function expandVars(s, env = process.env, home = os.homedir()) {
   const get = (n) => { const k = Object.keys(env).find((x) => x.toLowerCase() === String(n).toLowerCase()); return k ? env[k] : undefined; };
   return String(s)
@@ -196,7 +206,7 @@ export function createPolicy(cfg = {}) {
     visible: (tool) => !hidden.has(tool.name),
     // → null when allowed, otherwise the refusal text returned to the model.
     check(name, args) {
-      if (hidden.has(name)) return TERMINAL_TOOLS.includes(name) ? 'The terminal is off on this PC (access preset Read only or Files). The person can switch to Full in Bridgerator → Safety, or you can ask with bridgerator_settings.' : `Tool "${name}" is disabled on this computer.`;
+      if (hidden.has(name)) return TERMINAL_TOOLS.includes(name) ? 'The terminal is off on this PC (access preset Read only or Files). Turn it on with bridgerator_settings set {preset: "full"} (applies at once) if the person wants it.' : `Tool "${name}" is turned off on this PC. If the person wants it, take it out of disabledTools with bridgerator_settings set (applies at once).`;
       if (name === 'read_file' && args?.isUrl) return 'Reading URLs is disabled on this computer.';
       let paths;
       try { paths = pathsIn(args); } catch (e) { return `Refused by Bridgerator: ${e.message}.`; }
@@ -215,8 +225,8 @@ export function createPolicy(cfg = {}) {
         // Checked as written AND with variables expanded (%APPDATA%, $env:APPDATA, ${env:APPDATA}, ~),
         // with quotes / escape characters removed ("%USERPROFILE%"\.ssh, .s^sh, .`ssh) and 8.3 short
         // names of existing folders made long (C:\PROGRA~1).
-        const u = unquote(args[k]);
-        const texts = [args[k], expandVars(args[k]), u, expandVars(u)];
+        const raw = withDecoded(args[k]), u = unquote(raw);
+        const texts = [raw, expandVars(raw), u, expandVars(u)];
         texts.push(...texts.map(longNames));
         if (texts.some(mentionsDenied)) return `Access denied by Bridgerator: the ${k} refers to an excluded folder.`;
         // Paths in the command resolved like the file tools do (relative → the terminal's folder,
@@ -295,17 +305,37 @@ export function debrand(v) {
   return v;
 }
 
+// The engine's widgets in our build (product audit 27.10, ledger A1/A2/A5/A7/A8; LOGIC: critical-logic/bridge.md).
+// "Open in folder / editor" and the editor's link suggestions call start_process / start_search: ChatGPT lets a
+// widget call only tools marked widget-accessible. The call still goes through the policy (terminal off → refused).
+export const WIDGET_CALLS = ['start_process', 'start_search'];
+export const widgetCallable = (t) => (WIDGET_CALLS.includes(t.name) ? { ...t, _meta: { ...(t._meta || {}), 'openai/widgetAccessible': true } } : t);
+/** A widget page as we serve it: no analytics call to a tool we don't list, Windows wording, read-only config fields that say where they change. */
+export function fixWidgetHtml(html) {
+  return String(html)
+    .replace(/\b[A-Za-z_$][\w$]*\("track_ui_event",/g, '(async()=>{})(')
+    .replaceAll('title="Open in Finder"', 'title="Open in Explorer"')
+    .replaceAll('The selected key (${u.key}) is read-only.', 'To change ${u.key}, ask ChatGPT: it changes Bridgerator settings with bridgerator_settings.')
+    .replace('</head>', '<style>.config-shell input,.config-shell select,.config-shell textarea{opacity:.7;cursor:not-allowed}</style></head>');
+}
+
 // Two results are the engine's own text, not user data: the prompt catalog (get_prompts says
 // its own brand in the heading) and get_config, whose `version` is the engine's and is
 // shown as "Bridgerator version" — replaced by the bridge's own version.
 export function debrandResult(name, result, version) {
   if (!result || typeof result !== 'object') return result;
   if (name === 'get_prompts') return debrand(result);
-  const sc = result.structuredContent, engine = sc?.config?.version;
-  if (name !== 'get_config' || typeof engine !== 'string') return result;
+  if (name !== 'get_config') return result;
+  // Its widget can't save (set_config_value is hidden → "Tool helper call failed"): read-only entries;
+  // changed through bridgerator_settings. Only what that tool can change is shown: the engine's own
+  // telemetry (always off) is not Bridgerator's (telemetryEnabled there).
+  const sc = result.structuredContent || {}, engine = sc.config?.version;
+  const NOT_OURS = ['telemetryEnabled'];
+  const entries = Array.isArray(sc.entries) ? sc.entries.filter((e) => !NOT_OURS.includes(e?.key)).map((e) => ({ ...e, editable: false })) : sc.entries;
+  if (typeof engine !== 'string') return result.structuredContent ? { ...result, structuredContent: { ...sc, entries } } : result;
   const label = `"version": ${JSON.stringify(engine)}`;
   const content = Array.isArray(result.content)
     ? result.content.map((c) => (c?.type === 'text' && typeof c.text === 'string' ? { ...c, text: c.text.replace(label, `"version": ${JSON.stringify(version)}`) } : c))
     : result.content;
-  return { ...result, content, structuredContent: { ...sc, config: { ...sc.config, version } } };
+  return { ...result, content, structuredContent: { ...sc, entries, config: { ...sc.config, version } } };
 }

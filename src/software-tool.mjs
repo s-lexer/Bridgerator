@@ -164,7 +164,7 @@ export async function handle(name, args, ctx) {
     return json({ action, found: programs.length, programs, ...(programs.length >= MAX_ROWS ? { note: `first ${MAX_ROWS} shown` } : {}) });
   }
   // install / upgrade: like a terminal command — off with the terminal; asks when confirmations are on.
-  if ((ctx.cfg?.disabledTools || []).includes('start_process')) fail('TERMINAL_OFF', 'Installing programs is off on this PC (access preset Read only or Files).', 'The person can switch to Full in Bridgerator → Safety, or you can ask with bridgerator_settings.');
+  if ((ctx.cfg?.disabledTools || []).includes('start_process')) fail('TERMINAL_OFF', 'Installing programs is off on this PC (access preset Read only or Files).', 'Turn it on with bridgerator_settings set {preset: "full"} (applies at once) if the person wants it.');
   const id = idArg(args, !(action === 'upgrade' && args.all === true));
   if (action === 'upgrade' && args.all === true && id) fail('BAD_ARGS', 'Give either id or all: true, not both.');
   const version = str(args, 'version', { max: 40 });

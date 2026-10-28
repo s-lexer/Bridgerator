@@ -75,7 +75,7 @@ test('engine call errors: timeout / restarted engine / bad arguments / other, no
   assert.match(engineErrorText(Object.assign(new Error('MCP error -32000: Connection closed'), { code: -32000 })), /restarted.*ENGINE_RESTARTED/);
   assert.match(engineErrorText(Object.assign(new Error('MCP error -32602: Invalid arguments for tool read_file'), { code: -32602 })), /^These arguments don't fit the tool: Invalid arguments for tool read_file \(code BAD_ARGS\)$/);
   const t = engineErrorText(new Error('weird\n    at x (y.js:1:1)'));
-  assert.match(t, /^The PC could not do this: weird\. .*bridgerator doctor.*ENGINE_ERROR/);
+  assert.match(t, /^The PC could not do this: weird\. .*bridgerator_doctor.*ENGINE_ERROR/);
 });
 
 test('CLIXML from a non-interactive PowerShell → just the error text (Cyrillic kept)', () => {

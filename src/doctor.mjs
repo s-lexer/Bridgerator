@@ -155,7 +155,7 @@ export async function runDoctor(cfg, { version, fetch: f = globalThis.fetch, wsO
         const st = w.task?.missing ? 'missing' : TASK_STATE[w.task?.state] || 'unknown';
         out.push((st === 'ready' || st === 'running') && w.task?.old ? R('autostart', 'warn', 'Starts with Windows (old-style task)', '', 'Run the install command again to update it.')
           : st === 'ready' || st === 'running' ? R('autostart', 'ok', 'Starts with Windows')
-          : st === 'disabled' ? R('autostart', 'warn', 'Start with Windows is off', '', 'Turn it on in the Bridgerator window → Settings, or run the install command again.')
+          : st === 'disabled' ? R('autostart', 'warn', 'Start with Windows is off', '', 'Turn it on with bridgerator_settings set {autostart: true} (or in the Bridgerator window → Settings).')
             : st === 'missing' ? R('autostart', 'fail', 'Start with Windows is not set up', '', 'Run the install command again.')
               : R('autostart', 'not_checked', 'Start with Windows', 'task state unknown'));
       }

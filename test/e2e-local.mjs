@@ -40,6 +40,21 @@ try {
   const w = await dc.readResource('ui://bridgerator/file-preview');
   assert.match(w.result.contents[0].text, /<html|<!doctype/i);
   assert.equal((await dc.readResource('file:///etc/passwd')).error, 'unknown resource');
+  // The config widget can't save (set_config_value hidden): its read-only message points to ChatGPT (owner 27.10).
+  const ce = dc.resources.find((r) => /config/.test(r.uri));
+  assert.match((await dc.readResource(ce.uri)).result.contents[0].text, /ask ChatGPT: it changes Bridgerator settings/);
+  // Product rule (audit 27.10): every engine tool a widget calls must be listed AND widget-accessible, else a
+  // button fails silently in ChatGPT. Known dead calls are in the ledger (FINDINGS_2026_10_27_PRODUCT_AUDIT.md).
+  const KNOWN_DEAD = { set_config_value: 'neutralized: get_config entries read-only' };
+  const engineTools = (await dc.client.listTools()).tools.map((t) => t.name);
+  for (const r of dc.resources) {
+    const html = (await dc.readResource(r.uri)).result.contents[0].text;
+    assert.doesNotMatch(html, /"track_ui_event"|Open in Finder/, `${r.uri}: analytics call / Mac wording left`);
+    for (const n of engineTools.filter((x) => html.includes(`"${x}"`))) {
+      const t = dc.tools.find((x) => x.name === n);
+      assert.ok((t && t._meta?.['openai/widgetAccessible'] === true) || KNOWN_DEAD[n], `${r.uri} calls ${n}: not listed / not widget-accessible`);
+    }
+  }
   // No trace of the bundled engine's brand or site in anything the user/assistant sees.
   assert.doesNotMatch(JSON.stringify(dc.tools), /Desktop ?Commander|"DC: |desktopcommander\.app/);
   assert.doesNotMatch(JSON.stringify(dc.resources), /Desktop Commander|desktop-commander/);

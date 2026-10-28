@@ -358,7 +358,7 @@ export function createDelegate({ file = '', snapshots = null, log = () => {}, em
     const waitS = int(args, 'wait_seconds', { min: 0, max: 240, def: 45 });
     if (args.mode !== undefined && !MODES.includes(args.mode)) fail('BAD_ARGS', `mode must be one of: ${MODES.join(', ')}.`);
     const L = limitsOf(ctx.cfg);
-    if (!L[id]) fail('AGENT_OFF', `Delegation to ${A.name} is turned off on this PC.`, `The person can turn it on in Bridgerator → Agents, or you can ask with bridgerator_settings (delegate.${id}: true).`);
+    if (!L[id]) fail('AGENT_OFF', `Delegation to ${A.name} is turned off on this PC.`, `Turn it on with bridgerator_settings set {delegate: {${id}: true}} if the person wants it (applies at once).`);
     if (ctx.policy && !ctx.policy.visible({ name: 'start_process' })) fail('TERMINAL_OFF', 'Running programs is off on this PC (access preset Read only or Files), so no agent can be started.', 'The person can switch to Full in Bridgerator → Safety.');
     // The folder: same rules as the file tools; it must not hold anything excluded (the agent works on the whole tree).
     // (guard tree: FOLDER_HAS_EXCLUDED when it contains an excluded / Bridgerator folder)

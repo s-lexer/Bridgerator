@@ -49,7 +49,7 @@ export function engineErrorText(e) {
   if (code === -32001 || /timed? ?out/i.test(msg)) return 'The PC did not finish this in time — it may still be running. Check the result, or do it in smaller steps. (code ENGINE_TIMEOUT)';
   if (code === -32000 || /connection closed/i.test(msg)) return 'Bridgerator\'s file and terminal service on the PC restarted. Try again in a few seconds. (code ENGINE_RESTARTED)';
   if (code === -32602) return `These arguments don't fit the tool: ${msg.slice(0, 200)} (code BAD_ARGS)`;
-  return `The PC could not do this: ${msg.slice(0, 300) || 'unknown error'}. If it repeats, the person can run "bridgerator doctor" on the PC. (code ENGINE_ERROR)`;
+  return `The PC could not do this: ${msg.slice(0, 300) || 'unknown error'}. If it repeats, run bridgerator_doctor. (code ENGINE_ERROR)`;
 }
 export const text = (t) => ({ content: [{ type: 'text', text: t }] });
 export const json = (o) => ({ content: [{ type: 'text', text: JSON.stringify(o, null, 2) }] });
@@ -90,7 +90,7 @@ export function guard(ctx, p, { write = false, tree = false } = {}) {
   const allowed = ctx.cfg?.allowedDirectories || [];
   if (allowed.length) {
     const n = norm(realish(abs));
-    if (!allowed.some((d) => inside(n, norm(realish(d))))) fail('ACCESS_DENIED', `"${s}" is outside the folders allowed on this PC.`, 'Use a path inside an allowed folder (bridgerator_settings get shows them).');
+    if (!allowed.some((d) => inside(n, norm(realish(d))))) fail('ACCESS_DENIED', `"${s}" is outside the folders allowed on this PC.`, 'Use a path inside an allowed folder (bridgerator_settings get shows them; set allowedDirectories adds one).');
   }
   // tree: the tool works on the whole folder (copies, walks, recycles below it) → it must not CONTAIN an
   // excluded folder (Bridgerator's own ones included), nor a read-only one for writes.
@@ -172,6 +172,6 @@ export async function psJson(ctx, opts) {
     if (l.startsWith('{') || l.startsWith('[')) { try { return JSON.parse(l); } catch { /* not this line */ } }
   }
   const why = clean(r.stderr).split(/\r?\n/)[0] || `exit code ${r.code}`;
-  throw new ToolError('PS_FAILED', `Windows could not do it: ${why}`, 'Try again; if it repeats, run "bridgerator doctor" on the PC.');
+  throw new ToolError('PS_FAILED', `Windows could not do it: ${why}`, 'Try again; if it repeats, run bridgerator_doctor.');
 }
 export const pkgFile = (rel) => new URL(rel, import.meta.url);

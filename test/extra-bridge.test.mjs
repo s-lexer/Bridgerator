@@ -46,13 +46,13 @@ before(async () => {
 });
 after(async () => { await dc?.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
-test('the extra tools are in the tool list (hello); a tool in disabledTools is not, and a call to it is refused', async () => {
+test('the extra tools are in the tool list (hello); a tool in disabledTools stays listed (on again without a restart), a call to it is refused with the way back', async () => {
   const names = dc.tools.map((t) => t.name);
   for (const n of ['bridgerator_doctor', 'create_document', 'fast_search', 'photos', 'software', 'screen']) assert.ok(names.includes(n), n);
-  assert.ok(!names.includes('pc_health'));
+  assert.ok(names.includes('pc_health'));
   const r = await dc.call('pc_health', { action: 'summary' });
   assert.equal(r.isError, true);
-  assert.match(text(r), /disabled on this computer/);
+  assert.match(text(r), /turned off on this PC.*disabledTools.*bridgerator_settings/);
 });
 
 test('a document is created in an allowed folder; the read-only folder is refused with a plain reason', async () => {

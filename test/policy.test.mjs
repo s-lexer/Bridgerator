@@ -131,3 +131,14 @@ test('hard-linked files are never written; deep / huge arguments refused', () =>
   assert.match(q.check('some_tool', deep), /too deeply nested/);
   assert.match(q.check('some_tool', { items: Array.from({ length: 6000 }, () => 'x') }), /too large/);
 });
+
+test('review R5: -EncodedCommand is decoded for the text checks (policy and confirm)', async () => {
+  const { withDecoded } = await import('../src/policy.mjs');
+  const { findMatch } = await import('../src/confirm.mjs');
+  const enc = (s) => Buffer.from(s, 'utf16le').toString('base64');
+  const cmd = `powershell.exe -NoProfile -EncodedCommand ${enc(`Remove-Item '${secret}' -Recurse`)}`;
+  assert.match(withDecoded(cmd), /Remove-Item/);
+  assert.match(withDecoded(`pwsh -enc ${enc('Get-Date')}`), /Get-Date/);
+  assert.match(p.check('start_process', { command: cmd }), /excluded/, 'the decoded path is seen');
+  assert.equal(findMatch('start_process', { command: `powershell -e ${enc('Remove-Item x -Recurse')}` }, { delete: true }).cat, 'delete');
+});

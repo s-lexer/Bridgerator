@@ -431,7 +431,7 @@ async function main() {
     console.log(`started in background — log: ${LOG}`);
     console.log(`usage statistics: ${cfg.telemetryEnabled ? 'on (anonymous counts only; turn off: bridgerator.cmd telemetry off)' : 'off'}`);
     console.log('Next: in ChatGPT add the Bridgerator app and sign in with the same account.');
-    if (!cfg.setupDone) console.log('Then open ChatGPT and say: Set up Bridgerator');
+    console.log('It works with the defaults. In ChatGPT just ask for what you need; to change a setting, tell ChatGPT.');
     const event = !prev.token ? 'install' : prev.bridgeVersion !== VERSION ? 'update' : null;
     if (event) await send(cfg, event);
     return;

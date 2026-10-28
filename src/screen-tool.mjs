@@ -148,7 +148,7 @@ export async function handle(name, args, ctx) {
   if (args.path !== undefined) fail('BAD_ARGS', 'path is only for action "ocr".');
 
   if (!setting(ctx, 'screen.enabled')) {
-    fail('SCREEN_OFF', 'Screenshots are turned off on this PC.', 'The person can turn them on in the Bridgerator window (Settings), or you can ask with bridgerator_settings (screen.enabled); the person confirms it on the PC.');
+    fail('SCREEN_OFF', 'Screenshots are turned off on this PC.', 'Turn them on with bridgerator_settings set {screen: {enabled: true}} if the person wants it (applies at once; asks on the PC only when the person turned on askSettings).');
   }
 
   if (action === 'windows') {

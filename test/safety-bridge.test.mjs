@@ -189,6 +189,49 @@ test('bridgerator_settings get: every value in the names "set" takes, and the de
   assert.equal(g.defaults.preset, 'full');
 });
 
+test('line limits (owner 27.10): set by bridgerator_settings, live in the engine; get_config widget read-only; config.json edit applies', async () => {
+  const cfgOf = async () => (await dc.call('get_config', {})).structuredContent;
+  assert.equal((await cfgOf()).config.fileReadLineLimit, 1000);
+  assert.match(text(await settings({ fileReadLineLimit: 2000, fileWriteLineLimit: 200 })), /^Applied: Lines per file read: 2000; Lines per file write: 200/);
+  const sc = await cfgOf();
+  assert.equal(sc.config.fileReadLineLimit, 2000); assert.equal(sc.config.fileWriteLineLimit, 200);
+  assert.ok(sc.entries.length && sc.entries.every((e) => e.editable === false), 'the widget can\'t call set_config_value');
+  assert.deepEqual(sc.entries.map((e) => e.key).filter((k) => k === 'telemetryEnabled'), [], 'only what bridgerator_settings changes is shown');
+  assert.match(text(await settings({ defaultShell: 'cmd.exe' })), /^Applied: Terminal shell: cmd\.exe/);
+  assert.equal((await cfgOf()).config.defaultShell, 'cmd.exe');
+  assert.match(text(await settings({ defaultShell: 'C:\\evil.exe' })), /must be one of/);
+  await settings({ defaultShell: 'powershell.exe' });
+  assert.equal(JSON.parse(fs.readFileSync(CONFIG, 'utf8')).fileReadLineLimit, 2000);
+  assert.match(text(await settings({ fileWriteLineLimit: 5 })), /from 10 to 10000/);
+  const c = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
+  fs.writeFileSync(CONFIG, JSON.stringify({ ...c, fileWriteLineLimit: 300 }, null, 2));
+  await until(async () => (await state()).fileWriteLineLimit === 300);
+  assert.equal((await cfgOf()).config.fileWriteLineLimit, 300);
+});
+
+test('owner 27.10 "ии может менять все": blockedCommands, disabledTools (on again without a restart), own confirm patterns, update', async () => {
+  const cfgOf = async () => (await dc.call('get_config', {})).structuredContent;
+  const before = (await state()).blockedCommands;
+  assert.ok(before.length > 5, 'the engine defaults are shown');
+  assert.match(text(await settings({ blockedCommands: [...before, 'evilcmd'] })), /^Applied: Blocked commands: \+evilcmd/);
+  assert.ok((await cfgOf()).config.blockedCommands.includes('evilcmd'), 'pushed into the engine');
+  await settings({ blockedCommands: before });
+  assert.ok(!(await cfgOf()).config.blockedCommands.includes('evilcmd'));
+  assert.match(text(await settings({ disabledTools: ['pc_health'] })), /^Applied: Tools turned off: \+pc_health/);
+  assert.match(text(await dc.call('pc_health', { action: 'summary' })), /turned off on this PC/);
+  assert.ok(dc.tools.some((t) => t.name === 'pc_health'), 'still listed');
+  await settings({ disabledTools: [] });
+  assert.match(text(await settings({ disabledTools: ['queue_list'] })), /not switchable/, 'own tools are dispatched before the policy (R3)');
+  assert.notEqual((await dc.call('pc_health', { action: 'summary' })).refused, true, 'on again, no restart');
+  assert.match(text(await settings({ confirm: { patterns: ['\\bgit\\s+push\\b'] } })), /Own confirm patterns: \+/);
+  assert.match(fs.readFileSync(INI, 'utf8'), /\[patterns\][\s\S]*pattern1 = \\bgit\\s\+push\\b/);
+  assert.deepEqual(JSON.parse(text(await dc.call('bridgerator_settings', { action: 'get' }))).current.confirm.patterns, ['\\bgit\\s+push\\b']);
+  await settings({ confirm: { patterns: [] } });
+  assert.doesNotMatch(fs.readFileSync(INI, 'utf8'), /^pattern1 =/m);
+  // No site in the test: the update says so plainly, nothing else changes.
+  assert.match(text(await settings({ update: true })), /Could not check for updates/);
+});
+
 test('Protect sensitive folders: off → readable; on is direct; off again needs the person', async () => {
   assert.match(text(await dc.call('read_file', { path: path.join(fakeHome, '.ssh', 'id_rsa') })), /KEY/);
   assert.match(text(await settings({ protectSensitive: true })), /^Applied/);

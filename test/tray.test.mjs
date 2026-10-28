@@ -283,10 +283,10 @@ test('V2-5: settings change lines (describe) are Russian on a ru PC — labels a
   assert.equal(localizeAsk({ head: 'ChatGPT wants to run a command', text: 'Language: on', buttons: [] }, 'ru').text, 'Language: on');
   assert.equal(settingsQ('Confirm constructor: on'), 'Confirm constructor: on');
   // bridgerator_setup's question (setup-tool diffSetup lines).
-  assert.equal(localizeAsk({ head: 'ChatGPT suggests Bridgerator settings', text: 'Terminal: off · Confirmations: on', buttons: [] }, 'ru').text, 'Терминал: выкл · Подтверждения: вкл');
-  assert.equal(localizeAsk({ head: 'ChatGPT suggests Bridgerator settings', text: 'Folders: only D:\\a', buttons: [] }, 'ru').text, 'Папки: только D:\\a');
+  assert.equal(localizeAsk({ head: 'ChatGPT wants to change Bridgerator settings', text: 'Terminal: off · Confirmations: on', buttons: [] }, 'ru').text, 'Терминал: выкл · Подтверждения: вкл');
+  assert.equal(localizeAsk({ head: 'ChatGPT wants to change Bridgerator settings', text: 'Folders: only D:\\a', buttons: [] }, 'ru').text, 'Папки: только D:\\a');
   assert.equal(settingsQ('Computer name: only desk'), 'Имя компьютера: only desk', 'a free value is never rewritten');
-  assert.equal(localizeAsk({ head: 'ChatGPT suggests Bridgerator settings', text: 'Too many changes for a notification — review them in the Bridgerator window.', buttons: [] }, 'ru').text, 'Слишком много изменений для уведомления — посмотрите их в окне Bridgerator.');
+  assert.equal(localizeAsk({ head: 'ChatGPT wants to change Bridgerator settings', text: 'Too many changes for a notification — review them in the Bridgerator window.', buttons: [] }, 'ru').text, 'Слишком много изменений для уведомления — посмотрите их в окне Bridgerator.');
   assert.equal(localizeAsk({ head: 'Bridgerator settings file changed', text: `Apply: ${lines[5]}?`, buttons: [] }, 'ru').text, 'Применить: Только чтение: +C:\\Data?');
   assert.equal(settingsQ('Something new: on'), 'Something new: on', 'an unknown line stays English');
 });

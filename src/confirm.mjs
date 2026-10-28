@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import { askOnPc } from './ask.mjs';
+import { withDecoded } from './policy.mjs';
 
 export const ALLOW_FOR_MS = 10 * 60 * 1000;
 export const CATEGORIES = ['delete', 'dangerous_commands', 'write_files', 'move', 'any_command', 'install', 'scheduled_scripts'];
@@ -78,7 +79,7 @@ const commandOf = (name, args) => (name === 'start_process' ? args?.command : na
 /** → { cat, fragment } — the category that makes this call ask (or cat null) and the matched text. */
 export function findMatch(name, args = {}, ask = DEFAULT_ASK, patterns = []) {
   const cmd = commandOf(name, args);
-  const text = typeof cmd === 'string' ? cmd : null;
+  const text = typeof cmd === 'string' ? withDecoded(cmd) : null;
   const hay = [text, args?.path, args?.file_path, args?.source, args?.destination].filter((x) => typeof x === 'string');
   const hit = (list, strs) => { for (const re of list) for (const h of strs) { const m = re.exec(h); if (m) return m[0].trim() || h; } return null; };
   let f;
@@ -212,6 +213,15 @@ export function restoreIni(file) {
  * file is recreated from the last applied state (never the "off" template over it), in the same write. */
 export function setIni(file, section, key, value) {
   writeAtomic(file, setIniText(textOrRecreated(file), section, key, value));
+}
+/** [patterns] replaced by `list` (pattern1…N); the rest of the file kept. Owner 27.10: the AI sets them too. */
+export function setIniPatterns(file, list) {
+  const lines = textOrRecreated(file).split(/\r?\n/);
+  let sec = '';
+  const kept = lines.filter((l) => { const t = l.trim(), m = t.match(/^\[(.+)\]$/); if (m) { sec = m[1].trim().toLowerCase(); return true; } return !(sec === 'patterns' && t && !t.startsWith(';') && t.includes('=')); });
+  let t = kept.join('\r\n');
+  list.forEach((p, i) => { t = setIniText(t, 'patterns', `pattern${i + 1}`, p); });
+  writeAtomic(file, t);
 }
 /** setIni on a text: → the new text. */
 export function setIniText(text, section, key, value) {
@@ -363,7 +373,7 @@ export function createGate({ ini, ask = askOnPc, now = Date.now, onChange = () =
       if (changed && typeof changed === 'object') {
         const ask = { ...applied.ask };
         for (const k of CATEGORIES) if (typeof changed[k] === 'boolean') ask[k] = changed[k];
-        applied = { ...applied, ask, ...(typeof changed.enabled === 'boolean' ? { enabled: changed.enabled } : {}) };
+        applied = { ...applied, ask, ...(typeof changed.enabled === 'boolean' ? { enabled: changed.enabled } : {}), ...(Array.isArray(changed.patterns) ? { patterns: changed.patterns.map((p) => new RegExp(p, 'i')) } : {}) };
       } else applied = (ini && readSettingsStrict(ini)) || applied;
       const off = weakerBy(before, applied);
       if (off.length) onTurnedOff(off);

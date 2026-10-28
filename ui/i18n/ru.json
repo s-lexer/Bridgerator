@@ -60,9 +60,6 @@
   "stepAllow": "ChatGPT работает без лишних вопросов",
   "stepAllowHint": "В ChatGPT: Bridgerator → Permission → Allow all",
   "stepAllowBtn": "Открыть",
-  "step2": "Настроить вместе с ChatGPT",
-  "step2Hint": "Скажите в ChatGPT:",
-  "step2Phrase": "Set up Bridgerator",
   "step3": "Дать ChatGPT список задач",
   "step3Hint": "Добавьте задачи в очередь и скажите:",
   "step3Phrase": "Work through my queue",
@@ -354,8 +351,8 @@
     "intro": "Bridgerator позволяет ChatGPT работать с файлами и программами на этом ПК — в папках, которые вы разрешили.",
     "steps": [
      "Держите ПК включённым, а Bridgerator запущенным (зелёный значок в трее).",
-     "В ChatGPT откройте Bridgerator из меню приложений.",
-     "Скажите «Set up Bridgerator». ChatGPT задаст пару вопросов, а вы подтвердите настройки на ПК."
+     "В ChatGPT включите Bridgerator в разделе Plugins (chatgpt.com/plugins).",
+     "Настраивать ничего не нужно: всё работает по умолчанию. Чтобы что-то изменить, просто скажите ChatGPT — изменение применится сразу."
     ],
     "tipLabel": "say",
     "tip": "Set up Bridgerator"
@@ -463,7 +460,7 @@
  "copied": "Скопировано",
  "error": "Что-то пошло не так: {msg}",
  "setup": {
-  "title": "ChatGPT предлагает настройки Bridgerator",
+  "title": "ChatGPT хочет изменить настройки Bridgerator",
   "text": "Ничего не изменится, пока вы не нажмёте «Применить».",
   "apply": "Применить"
  },
@@ -473,7 +470,7 @@
   "intro": "Скажите это в любом чате ChatGPT, где подключён Bridgerator. Несколько чатов могут работать одновременно.",
   "copy": "Копировать",
   "setup": "Set up Bridgerator",
-  "setupHint": "ChatGPT задаст пару вопросов и предложит настройки, вы подтвердите их на этом ПК.",
+  "setupHint": "ChatGPT покажет, как настроен Bridgerator, и изменит любую настройку по вашей просьбе — сразу.",
   "add": "Add these tasks to my Bridgerator queue: …",
   "addHint": "Перечислите задачи после двоеточия, по одной в строке.",
   "work": "Work through my Bridgerator queue",

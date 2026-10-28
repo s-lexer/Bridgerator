@@ -102,7 +102,7 @@ test('bridgerator_settings: safe changes apply at once; a mixed set applies only
   assert.equal(r.notConfirmed, true);
   assert.equal(JSON.parse(fs.readFileSync(CONFIG, 'utf8')).theme, 'light', 'safe part applied');
   assert.equal(readSettings(INI).enabled, true, 'risky part not');
-  for (const bad of [{ blockedCommands: [] }, { deniedDirectories: [] }, { disabledTools: [] }, { telemetry: true }, { allowedDirectories: ['\\\\srv\\share'] }]) {
+  for (const bad of [{ blockedCommands: 'rm' }, { deniedDirectories: [] }, { disabledTools: ['no_such_tool'] }, { disabledTools: ['bridgerator_settings'] }, { update: false }, { telemetry: true }, { allowedDirectories: ['\\\\srv\\share'] }]) {
     const x = await settings(bad);
     assert.equal(x.isError, true, JSON.stringify(bad)); assert.match(text(x), /^Not changed/);
   }

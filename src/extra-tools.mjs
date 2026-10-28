@@ -55,7 +55,7 @@ export function createExtra(mods = EXTRA_MODULES) {
     has: (name) => owner.has(name),
     async call(name, args, ctx) {
       // A tool the person turned off (config disabledTools) is refused like the engine's own.
-      if (ctx?.policy && !ctx.policy.visible({ name })) return { content: [{ type: 'text', text: `Tool "${name}" is disabled on this computer.` }], isError: true, refused: true };
+      if (ctx?.policy && !ctx.policy.visible({ name })) return { content: [{ type: 'text', text: `Tool "${name}" is turned off on this PC. If the person wants it, take it out of disabledTools with bridgerator_settings set (applies at once).` }], isError: true, refused: true };
       try {
         return await owner.get(name).handle(name, args && typeof args === 'object' && !Array.isArray(args) ? args : {}, ctx);
       } catch (e) {
