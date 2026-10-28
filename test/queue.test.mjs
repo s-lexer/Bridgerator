@@ -30,7 +30,7 @@ test('limits: 500 items, title / details / note / paths lengths; strict statuses
   // A second chat re-adding the same set (E2E 26.10): open items with the same title are skipped and named.
   const d1 = JSON.parse(queueTool(q, 'queue_add', { items: [{ title: 'Dup A' }, { title: 'Dup B' }] }).content[0].text).items;
   const d2 = JSON.parse(queueTool(q, 'queue_add', { items: [{ title: ' dup a ' }, { title: 'Dup C' }] }).content[0].text);
-  assert.deepEqual(d2.skipped, [{ title: ' dup a ', duplicate_of: d1[0].id }]);
+  assert.deepEqual(d2.skipped, [{ title: ' dup a ', duplicate_of: d1[0].id, status: 'todo' }]);
   assert.deepEqual(d2.items.map((x) => x.title), ['Dup C']);
   const d3 = JSON.parse(queueTool(q, 'queue_add', { title: 'Dup B' }).content[0].text);
   assert.equal(d3.added, 0); assert.equal(d3.skipped[0].duplicate_of, d1[1].id); assert.match(d3.message, /allowDuplicate/);
@@ -216,4 +216,36 @@ test('stalled: "doing" 10 min without an update AND no call on the PC for 10 min
   assert.match(noticeText({ kind: 'queue_stalled', title: 'R1b' }).body, /"R1b".*allow an action.*press Retry there or pick another model/);
   assert.equal(noticeText({ kind: 'queue_stalled', title: '' }), undefined);
   assert.match(noticeText({ kind: 'queue_stalled', title: 'R1b', more: 2 }).body, /"R1b" and 2 more for 10 minutes/);
+});
+
+test('bug 28.10: resultPath / paths the folder settings refuse → a warning in the answer, the item is still added', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brg-qw-'));
+  const q = createQueue(path.join(dir, 'queue.json'));
+  const blocked = (p, write) => (/^D:\\tmp\\/i.test(p) ? `Access denied by Bridgerator: "${p}" is outside the allowed folders.` : write && /^E:\\ro\\/i.test(p) ? 'read-only' : null);
+  const add = (a) => JSON.parse(queueTool(q, 'queue_add', a, { blocked }).content[0].text);
+  const r = add({ items: [{ title: 'W1', resultPath: 'D:\\tmp\\r.md', paths: ['D:\\tmp\\src'] }, { title: 'W2', resultPath: 'C:\\ok\\r.md' }] });
+  assert.equal(r.items.length, 2);
+  assert.equal(r.warnings.length, 2);
+  assert.match(r.warnings[0], /resultPath: .*outside the allowed folders.*will be refused/);
+  assert.match(r.warnings[1], /paths: /);
+  const ok = add({ title: 'W3', resultPath: 'C:\\ok\\x.md' });
+  assert.equal(ok.warnings, undefined);
+  const e = JSON.parse(queueTool(q, 'queue_edit', { id: ok.item.id, resultPath: 'E:\\ro\\x.md' }, { blocked }).content[0].text);
+  assert.equal(e.warnings.length, 1);
+  const n = JSON.parse(queueTool(q, 'queue_next', {}, { blocked }).content[0].text);
+  assert.equal(n.item.title, 'W1'); assert.equal(n.warnings.length, 2);
+  // no checker (window, tests): answers as before
+  assert.equal(JSON.parse(queueTool(q, 'queue_list', {}).content[0].text).warnings, undefined);
+});
+
+test('bug 26.10: a duplicate of a "doing" item says since when, who holds it and how to take it over', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brg-qd-'));
+  const q = createQueue(path.join(dir, 'queue.json'));
+  queueTool(q, 'queue_add', { items: [{ title: 'Held' }, { title: 'Open' }] });
+  queueTool(q, 'queue_next', { worker: 'chat A' });
+  const r = JSON.parse(queueTool(q, 'queue_add', { items: [{ title: 'held' }, { title: 'open' }] }).content[0].text);
+  assert.equal(r.added, 0);
+  assert.deepEqual(r.skipped.map((x) => [x.status, x.worker, typeof x.doingMinutes]), [['doing', 'chat A', 'number'], ['todo', undefined, 'undefined']]);
+  assert.match(r.message, /queue_update \{id, status: "todo"\}/);
+  assert.match(r.message, /30 minutes/);
 });

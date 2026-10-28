@@ -170,6 +170,13 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; }
 .tile .k { font-size: 12px; color: var(--muted); }
 .tile .v { font-size: 20px; font-weight: 600; }
 .tile .s { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now { display: flex; flex-direction: column; gap: 2px; padding: 14px 20px; }
+.now h2 { font-size: 14px; margin: 0 0 6px; }
+.now .sub-h { margin-top: 12px; color: var(--muted); font-weight: 500; font-size: 12px; }
+.now .hint { font-size: 13px; color: var(--muted); }
+.nowrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; color: inherit; text-decoration: none; min-width: 0; }
+.nowrow .t { flex-grow: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nowrow .n { flex-shrink: 0; font-size: 12px; color: var(--muted); }
 .steps { display: flex; flex-direction: column; gap: 2px; padding: 8px 20px; }
 .step { display: flex; align-items: center; gap: 14px; height: 56px; }
 .step + .step { border-top: 1px solid var(--row-line); }
@@ -373,7 +380,8 @@ main.automations section.phrases .phrase:first-child { border-top: 0; }
 main.agents { gap: 14px; overflow: auto; }
 main.agents .list { flex-grow: 0; flex-shrink: 0; overflow: visible; }
 main.agents .two { flex-grow: 0; flex-shrink: 0; }
-main.agents .phrases .phrase { padding: 8px 16px; }
+main.agents .confirm-card .top.sep { border-top: 1px solid var(--row-line); }
+main.agents .confirm-card .note { margin-top: auto; border-radius: 0; }
 main.agents .sec-title { margin: 4px 0 0; }
 .agrow .hint { flex-shrink: 0; }
 .qtext .n.mono { font-size: 11px; }
@@ -386,3 +394,7 @@ main.agents .sec-title { margin: 4px 0 0; }
 details.run summary { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; padding: 4px 0; }
 details.run summary .hint { font-size: 12px; color: var(--muted); }
 details.run .diff { margin-top: 6px; }
+.qtext[data-act] { cursor: pointer; }
+.dialog .flabel .pill { margin-left: 8px; }
+.note-sm.sel { user-select: text; white-space: normal; word-break: break-all; }
+#t-title { font-size: 14px; }

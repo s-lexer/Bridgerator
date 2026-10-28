@@ -260,3 +260,33 @@ test('V-9: the window toggle with confirm.ini held by another program: nothing c
   assert.equal(fs.readFileSync(INI, 'utf8'), text0, 'file untouched');
   assert.equal((await dc.rpc('getState')).settings.confirm.ask.delete, true);
 });
+
+test('checkUpdate: the newer of the review list and the current list wins (owner 28.10)', async () => {
+  const real = globalThis.fetch, lists = {};
+  globalThis.fetch = async (u) => { const v = lists[String(u).split('/').pop()]; if (!v) throw new Error('404'); return { json: async () => ({ version: v }) }; };
+  try {
+    Object.assign(lists, { 'bridgerator-win.json': '1.1.1', 'bridgerator-win-latest.json': '999.0.0' });
+    const c = await dc.rpc('checkUpdate');
+    assert.equal(c.latest, '999.0.0'); assert.equal(c.upToDate, false);
+    Object.assign(lists, { 'bridgerator-win.json': '999.1.0' });
+    assert.equal((await dc.rpc('checkUpdate')).latest, '999.1.0', 'after the review the main list is newer');
+    delete lists['bridgerator-win.json'];
+    assert.equal((await dc.rpc('checkUpdate')).latest, '999.0.0', 'one list missing: the other one');
+    delete lists['bridgerator-win-latest.json'];
+    await assert.rejects(dc.rpc('checkUpdate'), /no version/);
+  } finally { globalThis.fetch = real; }
+});
+
+test('bug 28.10: the window marks an open item whose result file is in place (newer than its update); queue tools warn about refused folders', async () => {
+  const res = path.join(work, 'итог.md');
+  const added = JSON.parse(text(await dc.call('queue_add', { items: [{ title: 'Ready item', resultPath: res }, { title: 'Bad place', resultPath: path.join(fakeHome, '.ssh', 'r.md') }] })));
+  assert.match(added.warnings.join('\n'), /Bad place|\.ssh|resultPath: Access denied/);
+  assert.equal(added.warnings.length, 1, 'only the refused one');
+  const id = added.items[0].id;
+  const ready = async () => (await dc.rpc('queue.list')).find((x) => x.id === id).resultReady;
+  assert.equal(await ready(), undefined, 'no file yet');
+  fs.writeFileSync(res, 'OVERALL ok'); fs.utimesSync(res, new Date(), new Date(Date.now() + 5000));
+  assert.equal(await ready(), true);
+  await dc.rpc('queue.update', { id, status: 'done', note: 'closed' });
+  assert.equal(await ready(), undefined, 'done: no button');
+});

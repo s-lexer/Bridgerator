@@ -186,3 +186,29 @@ test('X1-4: UNC / device paths in a command are refused at once, never looked up
   assert.ok(performance.now() - t0 < 500, `${Math.round(performance.now() - t0)} ms`);
   assert.equal(c("'a\\\\b' -split '\\\\'"), null, 'a regex with \\\\ is not a network path');
 });
+
+// The real %TEMP% sits in this PC's AppData; here it must point into the fake profile's (excluded) AppData.
+const withTemp = (f) => { const old = [process.env.TEMP, process.env.TMP]; process.env.TEMP = process.env.TMP = path.join(fakeHome, 'AppData', 'Local', 'Temp'); try { f(); } finally { [process.env.TEMP, process.env.TMP] = old; } };
+test('bug 26.10: TEMP/TMP set to an allowed folder at the very start is not a reference to AppData; every other form still is', () => withTemp(() => {
+  const D = work.replace(/'/g, "''");
+  assert.equal(cmd(`$env:TEMP='${D}'; $env:TMP=$env:TEMP; Write-Output $env:TEMP $env:TMP`), null);
+  assert.equal(cmd(`$env:TEMP="${work}"; node --test x.test.mjs; Write-Output \${env:temp}`), null);
+  for (const c of ['Write-Output $env:TEMP', // the real TEMP
+    `if ($false) { $env:TEMP='${D}' }; gc $env:TEMP`, // inside a block: may not run
+    `Write-Output 1; $env:TEMP='${D}'; gc $env:TEMP`, // not at the start
+    `$env:TEMP='${D}'; type %TEMP%`, // %VAR% never takes the set
+    `$env:TEMP='${D}'; $env:TEMP = [Environment]::GetEnvironmentVariable('TEMP','User'); gc $env:TEMP`,
+    `$env:TEMP='${D}'; Remove-Item Env:\\TEMP; gc $env:TEMP`,
+    `$env:TEMP='${D}'; $env:TEMP+='x'; gc $env:TEMP`, `$env:TEMP='${D}'; ${'$'}{env:TEMP}='x'; gc $env:TEMP`,
+    `$env:TEMP='${D}'; $env:TEMP=$env:LOCALAPPDATA; gc $env:TEMP`,
+    `$env:TEMP='${path.join(fakeHome, 'AppData', 'Local', 'Temp')}'; gc $env:TEMP`, // the value itself
+    `$env:X=$env:TEMP; gc $env:X`]) denied(cmd(c));
+}));
+
+test('bug 28.10: the refusal names the variable that led into an excluded folder (never the folder list)', () => withTemp(() => {
+  const r = cmd('Get-ChildItem $env:TEMP');
+  assert.match(r, /through \$env:TEMP/);
+  assert.match(r, /\$env:TEMP='<allowed folder>'/, 'says how to move temp files');
+  assert.ok(!r.includes(fakeHome), 'no expanded path in the text');
+  assert.match(cmd(`dir "${secret}"`), /named in the command itself/);
+}));

@@ -468,3 +468,30 @@ test('home: "Let ChatGPT work without asking" opens Bridgerator\'s Permission pa
   assert.deepEqual(page.errors, []);
   await page.close();
 });
+
+test('window: the 2 s refresh keeps the scroll position; finished onboarding steps are not shown', async (t) => {
+  const page = await openPage(t, 'agents', () => { window.__host.st.allowOpened = true; });
+  if (!page) return;
+  await page.setViewportSize({ width: 900, height: 420 });
+  const top = await page.evaluate(() => { const m = document.querySelector('#main'); m.scrollTop = 120; return m.scrollTop; });
+  assert.ok(top > 0, 'the page scrolls at this size');
+  await page.waitForTimeout(2600); // one refresh redraws #main
+  assert.equal(await page.evaluate(() => document.querySelector('#main').scrollTop), top);
+  await page.evaluate(() => { location.hash = 'home'; });
+  await page.waitForSelector('#main.home .now');
+  assert.equal(await page.$('#main .steps'), null, 'queue has tasks + Allow opened: no onboarding card');
+  assert.deepEqual(page.errors, []);
+  await page.close();
+});
+
+test('window: a click on a queue row opens the task with its full result note (owner 28.10: a failed note could not be read)', async (t) => {
+  const page = await openPage(t, 'queue', () => { window.__host.queue.push({ id: 'f1', title: 'Failed one', status: 'failed', note: 'FAILED: the whole long reason '.repeat(8), worker: 'w5', resultPath: 'D:\\out\\r.md', order: 4, createdAt: '2026-10-27T10:00:00.000Z', updatedAt: '2026-10-27T11:00:00.000Z' }); });
+  if (!page) return;
+  await page.click('.qtext[data-id="f1"]');
+  await page.waitForSelector('.overlay .dialog');
+  const txt = await page.textContent('.overlay .dialog');
+  assert.ok(txt.includes('FAILED: the whole long reason '.repeat(8).trim()), 'whole note');
+  assert.match(txt, /D:\\out\\r\.md/);
+  assert.deepEqual(page.errors, []);
+  await page.close();
+});

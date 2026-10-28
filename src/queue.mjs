@@ -183,27 +183,42 @@ export function createQueue(file, { now = () => new Date().toISOString(), onChan
 }
 
 /** queue_* tool call → MCP result. */
-export function queueTool(q, name, args = {}) {
+// blocked(path, write) → the folder policy's refusal or null (bridge: policy.check). Bug 28.10: an item whose resultPath /
+// paths the folder settings refuse was accepted silently and failed only when the chat wrote the result.
+export function queueTool(q, name, args = {}, { blocked } = {}) {
+  const warn = (its) => {
+    if (!blocked) return {};
+    const w = [];
+    for (const it of its.filter(Boolean)) {
+      if (it.resultPath) { const r = blocked(it.resultPath, true); if (r) w.push(`${it.id} resultPath: ${r} Writing the result there will be refused — ask the person for another resultPath (queue_edit) or to allow that folder.`); }
+      for (const p of it.paths || []) { const r = blocked(p, false); if (r) w.push(`${it.id} paths: ${r}`); }
+    }
+    return w.length ? { warnings: w } : {};
+  };
   const ok = (v) => ({ content: [{ type: 'text', text: JSON.stringify(v, null, 2) }] });
   try {
     switch (name) {
       case 'queue_list': return ok({ counts: q.counts(), items: q.list(args.status).map(({ id, title, status, note, worker, updatedAt, details, paths, from, resultPath }) => ({ id, title, status, ...(note ? { note } : {}), ...(worker ? { worker } : {}), updatedAt, ...(details ? { details } : {}), ...(paths ? { paths } : {}), ...(from ? { from } : {}), ...(resultPath ? { resultPath } : {}) })) });
-      case 'queue_next': { const it = q.next(args); return ok(it ? { item: it } : { item: null, message: 'The queue is empty — tell the person and stop.' }); }
+      case 'queue_next': { const it = q.next(args); return ok(it ? { item: it, ...warn([it]) } : { item: null, message: 'The queue is empty — tell the person and stop.' }); }
       case 'queue_update': return ok({ item: q.update(args) });
       case 'queue_add': {
         // A second chat given the same request re-added the whole set (E2E 26.10): an open item with the same
         // title is skipped and named. Only the AI's tool; the window adds what the person types.
         const key = (t) => (typeof t === 'string' ? t.trim().toLowerCase() : null);
-        const open = new Map(q.list().filter((x) => x.status === 'todo' || x.status === 'doing').map((x) => [key(x.title), x.id]));
+        const open = new Map(q.list().filter((x) => x.status === 'todo' || x.status === 'doing').map((x) => [key(x.title), x]));
         const want = Array.isArray(args.items) ? args.items : [args], keep = [], skipped = [];
-        for (const x of want) { const d = args.allowDuplicate === true ? undefined : open.get(key(x?.title)); if (d) skipped.push({ title: x.title, duplicate_of: d }); else keep.push(x); }
-        const why = skipped.length ? { skipped, message: 'Already in the queue (open), not added again: work on those items (queue_list / queue_next), or pass allowDuplicate: true to add them anyway.' } : {};
+        // A "doing" duplicate says since when (bug 26.10: after a dropped chat nobody knew how to take it over).
+        const mins = (t) => Math.max(0, Math.round((Date.now() - Date.parse(t)) / 60000));
+        for (const x of want) { const d = args.allowDuplicate === true ? undefined : open.get(key(x?.title)); if (d) skipped.push({ title: x.title, duplicate_of: d.id, status: d.status, ...(d.status === 'doing' ? { doingMinutes: mins(d.updatedAt), ...(d.worker ? { worker: d.worker } : {}) } : {}) }); else keep.push(x); }
+        const doing = skipped.some((x) => x.status === 'doing');
+        const why = skipped.length ? { skipped, message: `Already in the queue (open), not added again: work on those items (queue_list / queue_next {id}), or pass allowDuplicate: true to add them anyway.${doing ? ` A "doing" item belongs to another chat; one with no update for ${STALE_MS / 60000} minutes is handed out again by queue_next {id} (resumed). If the person says that chat is gone, queue_update {id, status: "todo"} frees it now.` : ''}` } : {};
         if (!keep.length && skipped.length) return ok({ added: 0, ...why });
-        if (args.items == null) return ok({ item: q.add(args) });
-        return ok({ items: q.addMany(Array.isArray(args.items) ? keep : args.items), ...why });
+        if (args.items == null) { const it = q.add(args); return ok({ item: it, ...warn([it]) }); }
+        const its = q.addMany(Array.isArray(args.items) ? keep : args.items);
+        return ok({ items: its, ...why, ...warn(its) });
       }
       case 'queue_clear': { if (args.status === 'all') throw new Error('clearing every item needs the person\'s OK'); const gone = q.clear({ status: args.status || 'finished' }); return ok({ removed: gone.length, counts: q.counts() }); }
-      case 'queue_edit': return ok({ item: q.edit(args) });
+      case 'queue_edit': { const it = q.edit(args); return ok({ item: it, ...warn([it]) }); }
       case 'queue_reorder': return ok({ items: q.reorder(args) });
       default: return { content: [{ type: 'text', text: `unknown queue tool ${name}` }], isError: true };
     }

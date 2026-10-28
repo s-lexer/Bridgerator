@@ -29,6 +29,8 @@ test('update from the window: "updating" before the hidden installer, "updated" 
   assert.equal(noticeText({ kind: 'updating', version: '1.2.0' }).title, 'Bridgerator is updating to 1.2.0');
   assert.equal(noticeText({ kind: 'updated', version: '1.2.0' }).title, 'Bridgerator updated to 1.2.0');
   assert.equal(noticeText({ kind: 'updated', version: '1.2.0' }).button, null);
+  assert.match(noticeText({ kind: 'update_available', version: '1.2.0' }).title, /1\.2\.0 is available/);
+  assert.equal(noticeText({ kind: 'update_available', version: 'x' }), undefined);
   for (const v of ['', '1.2', '1.2.0<x>', null]) assert.equal(noticeText({ kind: 'updating', version: v }), undefined, String(v));
 });
 

@@ -14,6 +14,9 @@
 //   index.js          — no Chrome pre-download at start (~400 MB); PDF export still fetches it on demand.
 //   terminal-manager  — PowerShell (the default shell) writes UTF-8: the engine decodes output as UTF-8,
 //                       so on Russian & co. Windows (console code page 866/1251) text came out as garbage.
+//   search-manager    — a finished search is kept 30 min after its last read, not 5 (bug 26.10: with 5 chats on one
+//                       PC the model read results minutes later and got "Search session … not found"); the error
+//                       says why and what to do.
 const DIR_EXPR = "(globalThis.__BRG_DC_DIR || path.join(USER_HOME, '.claude-server-commander'))";
 const PATCHES = [
   { file: /[\\/]dist[\\/]config\.js$/, from: "const CONFIG_DIR = path.join(USER_HOME, '.claude-server-commander');", to: `const CONFIG_DIR = ${DIR_EXPR};` },
@@ -23,6 +26,8 @@ const PATCHES = [
   { file: /[\\/]dist[\\/]utils[\\/]trackTools\.js$/, from: 'export async function trackToolCall(toolName, args) {\n', to: 'export async function trackToolCall(toolName, args) {\n    return; // bridgerator: no local log of tool arguments\n' },
   { file: /[\\/]dist[\\/]utils[\\/]open-browser\.js$/, from: 'export async function openWelcomePage', replaceAll: 'export async function openBrowser() {}\nexport async function openWelcomePage() {}\n' },
   { file: /[\\/]dist[\\/]terminal-manager\.js$/, from: "args: ['-Command', command],", to: "args: ['-Command', '[Console]::OutputEncoding=[Text.Encoding]::UTF8;' + command]," },
+  { file: /[\\/]dist[\\/]search-manager\.js$/, from: 'cleanupSessions(maxAge = 5 * 60 * 1000) {', to: 'cleanupSessions(maxAge = 30 * 60 * 1000) {' },
+  { file: /[\\/]dist[\\/]search-manager\.js$/, from: 'throw new Error(`Search session ${sessionId} not found`);', to: 'throw new Error(`Search session ${sessionId} not found: a finished search is kept 30 minutes after it was last read, and a Bridgerator restart drops all searches. Run start_search again.`);' },
   { file: /[\\/]dist[\\/]index\.js$/, from: '            ensureChromeAvailable();\n', to: '            // bridgerator: no Chrome pre-download\n' },
 ];
 const ENGINE = /[\\/]bridgerator-engine[\\/]dist[\\/]/; // the bundled engine, installed under our own name (owner 26.10)

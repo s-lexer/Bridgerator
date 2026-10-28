@@ -26,11 +26,11 @@ export const DEFAULTS = {
   confirm: { enabled: false, ...readSettings('').ask, timeoutSeconds: 120 },   // no confirm.ini = the defaults per category
   recycleBin: true, snapshots: { ...SNAP_DEFAULTS }, fuse: { ...FUSE_DEFAULTS }, keepAwake: true, askSettings: false,
   fileReadLineLimit: 1000, fileWriteLineLimit: 50, defaultShell: 'powershell.exe', disabledTools: [],
-  theme: 'system', language: 'en', popupStyle: 'toast', notify: { sound: true, offline: true, queueDone: true, queueStalled: true, settingsChanged: true, limit: true },
+  theme: 'system', language: 'en', popupStyle: 'toast', notify: { sound: true, offline: true, queueDone: true, queueStalled: true, settingsChanged: true, limit: true, updates: true },
   deviceName: '', autostart: true, localHistory: false, telemetryEnabled: true,
   ...EXTRA.defaults(),
 };
-const NOTIFY = ['sound', 'offline', 'queueDone', 'queueStalled', 'settingsChanged', 'limit'];
+const NOTIFY = ['sound', 'offline', 'queueDone', 'queueStalled', 'settingsChanged', 'limit', 'updates'];
 const dirs = { type: 'array', maxItems: 20, items: { type: 'string' } };
 const strs = (maxItems, maxLength, description) => ({ type: 'array', maxItems, items: { type: 'string', maxLength }, description });
 export const SETTINGS_TOOL_DEF = {

@@ -148,12 +148,32 @@ export function withDecoded(s) {
   }
   return out.join('\n');
 }
-export function expandVars(s, env = process.env, home = os.homedir()) {
+// `$env:TEMP='D:\tmp\x'; $env:TMP=$env:TEMP; …` at the very START of a command (bug 26.10: tests moved their temp
+// files out of AppData and were refused): name → value. Only plain statements before anything else runs — never one
+// inside a branch, a block or after other code (`if ($false) { $env:TEMP='D:\x' }` must not hide the real TEMP).
+// Values: a quoted literal without $ % ` (the literal itself is checked as written), or a variable set just before.
+export function psEnvSets(s) {
+  const out = new Map(), re = /^\s*\$env:([A-Za-z_]\w*)\s*=\s*(?:'([^'$%`]*)'|"([^"$%`]*)"|\$env:([A-Za-z_]\w*))\s*;/i;
+  let rest = String(s), m;
+  while ((m = re.exec(rest))) {
+    const v = m[4] !== undefined ? out.get(m[4].toLowerCase()) : (m[2] ?? m[3]);
+    if (v === undefined) break; // $env:X=$env:Y with Y not set here: the real Y, stop
+    out.set(m[1].toLowerCase(), v); rest = rest.slice(m[0].length);
+  }
+  // Changed again later (another `$env:X =` / `+=` / `${env:X} =`, the Env: drive, [Environment]::…EnvironmentVariable): the real value counts.
+  if (/EnvironmentVariable/i.test(rest)) out.clear();
+  for (const n of [...out.keys()]) if (new RegExp(`\\$env:${n}\\s*[-+*/%]?=(?!=)|\\$\\{env:${n}\\}\\s*[-+*/%]?=(?!=)|(?<![\\x24{])\\benv:\\\\?${n}\\b`, 'i').test(rest)) out.delete(n);
+  return out;
+}
+export function expandVars(s, env = process.env, home = os.homedir(), sets = psEnvSets(s)) {
   const get = (n) => { const k = Object.keys(env).find((x) => x.toLowerCase() === String(n).toLowerCase()); return k ? env[k] : undefined; };
+  // PowerShell's own $env: forms see what the command set at its very start (psEnvSets); %VAR% never does
+  // (cmd expands a line before its `set` runs, and a child cmd is no proof the set ran).
+  const ps = (n) => sets.get(String(n).toLowerCase()) ?? get(n);
   return String(s)
     .replace(/%([A-Za-z_][\w()]*)%/g, (m, n) => get(n) ?? m)
-    .replace(/\$\{env:([^}]+)\}/gi, (m, n) => get(n) ?? m)
-    .replace(/\$env:([A-Za-z_]\w*)/gi, (m, n) => get(n) ?? m)
+    .replace(/\$\{env:([^}]+)\}/gi, (m, n) => ps(n) ?? m)
+    .replace(/\$env:([A-Za-z_]\w*)/gi, (m, n) => ps(n) ?? m)
     .replace(/(^|[\s"'(=;,])~(?=[\\/]|$|[\s"'])/g, (m, pre) => pre + home);
 }
 
@@ -226,9 +246,17 @@ export function createPolicy(cfg = {}) {
         // with quotes / escape characters removed ("%USERPROFILE%"\.ssh, .s^sh, .`ssh) and 8.3 short
         // names of existing folders made long (C:\PROGRA~1).
         const raw = withDecoded(args[k]), u = unquote(raw);
-        const texts = [raw, expandVars(raw), u, expandVars(u)];
+        const sets = psEnvSets(raw), texts = [raw, expandVars(raw, undefined, undefined, sets), u, expandVars(u, undefined, undefined, sets)];
         texts.push(...texts.map(longNames));
-        if (texts.some(mentionsDenied)) return `Access denied by Bridgerator: the ${k} refers to an excluded folder.`;
+        if (texts.some(mentionsDenied)) {
+          // Say WHAT was taken for an excluded folder (bug 28.10: a bare refusal on a plain test run told nothing).
+          // Only variable names, never the folder list or the expanded paths.
+          if (mentionsDenied(raw) || mentionsDenied(u) || mentionsDenied(longNames(raw)) || mentionsDenied(longNames(u))) return `Access denied by Bridgerator: the ${k} refers to an excluded folder (named in the ${k} itself).`;
+          const vars = [...new Set([...raw.matchAll(/%[A-Za-z_][\w()]*%|\$\{env:[^}]+\}|\$env:[A-Za-z_]\w*|(?:^|[\s"'(=;,])~(?=[\\/]|$|[\s"'])/gi)].map((m) => m[0].trim()))]
+            .filter((v) => mentionsDenied(expandVars(v, undefined, undefined, sets)));
+          const tmp = vars.some((v) => /temp|tmp/i.test(v)) ? ` To keep temp files elsewhere, set them at the very start of the command: $env:TEMP='<allowed folder>'; $env:TMP=$env:TEMP; …` : '';
+          return `Access denied by Bridgerator: the ${k} refers to an excluded folder through ${vars.length ? vars.join(', ') : 'a variable'} (it points there on this PC).${tmp}`;
+        }
         // Paths in the command resolved like the file tools do (relative → the terminal's folder,
         // junctions / symbolic links → their target): a link to an excluded folder is refused too.
         const named = [...new Set([...commandPaths(texts[1]), ...commandPaths(texts[3])])].slice(0, MAX_CMD_PATHS);

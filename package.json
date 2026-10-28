@@ -1,6 +1,6 @@
 {
   "name": "bridgerator",
-  "version": "1.1.15",
+  "version": "1.1.16",
   "description": "Connect ChatGPT to your Windows PC: files, search and terminal through an outbound-only bridge with folder limits. No inbound ports, no admin rights.",
   "license": "MIT",
   "type": "module",

@@ -33,6 +33,7 @@ import { spawn } from 'node:child_process';
 import { POWERSHELL, psArgs } from './win.mjs';
 import { stripOurs } from './ask.mjs';
 import { siteOf } from './pair.mjs';
+const newer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -368,7 +369,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
       const gone = queue.clear({ status: 'all' });
       return say(JSON.stringify({ removed: gone.length, counts: queue.counts() }));
     }
-    if (queue && QUEUE_TOOL_NAMES.has(name)) return queueTool(queue, name, args);
+    if (queue && QUEUE_TOOL_NAMES.has(name)) return queueTool(queue, name, args, { blocked: (p, write) => policy.check(write ? 'write_file' : 'read_file', { path: p }) });
     const refusal = policy.check(name, args);
     if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, refused: true };
     // While a question is on the screen, new commands wait for the person's answer.
@@ -541,7 +542,18 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
   const bannerNow = () => { const b = planBanner(out.plan); return { ...b, visible: bannerVisible(b, cfg.planBannerDismissed) }; };
   out.banner = bannerNow;
   out.onPlanMsg = (m) => { out.plan = readPlan(m); out.onPlan?.(); };
-  const BOOL_NOTIFY = ['sound', 'offline', 'queueDone', 'queueStalled', 'settingsChanged', 'limit'];
+  const BOOL_NOTIFY = ['sound', 'offline', 'queueDone', 'queueStalled', 'settingsChanged', 'limit', 'updates'];
+  // The installer the last checkUpdate found the newest version in (update runs that one).
+  let updateScript = 'install.ps1';
+  // "Update available" notice (owner 28.10: nobody learned of new versions): 5 min after start, then daily;
+  // once per version per run. notify.updates, on by default.
+  let toldUpdate = '';
+  const updateCheck = async () => {
+    if (cfg.notify?.updates === false) return;
+    try { const c = await rpc('checkUpdate'); if (!c.upToDate && c.latest !== toldUpdate) { toldUpdate = c.latest; showNotice({ kind: 'update_available', version: c.latest }, log); } } catch { /* offline: next check */ }
+  };
+  setTimeout(updateCheck, 5 * 60000).unref();
+  setInterval(updateCheck, 24 * 3600000).unref();
 
   // Requests of the Bridgerator window (tray helper). Made by the person at the PC: no extra prompt.
   async function rpc(method, p = {}, paths = []) {
@@ -637,7 +649,14 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
         if (extra.set(cfg, key, value, patchConfig)) return true;
         throw new Error(`unknown setting ${key}`);
       }
-      case 'queue.list': return queue.list(p.status);
+      // resultReady (bug 28.10): an open item whose result file is there and newer than its last update — a chat
+      // finished but never said done. Only a hint for the person's button; never closed automatically (a second chat
+      // might still be writing).
+      // Async stat: a resultPath on a dead mapped drive must not block the bridge (the window asks every 2 s).
+      case 'queue.list': return Promise.all(queue.list(p.status).map(async (it) => {
+        if (!it.resultPath || (it.status !== 'todo' && it.status !== 'doing')) return it;
+        try { return (await fs.promises.stat(it.resultPath)).mtimeMs > Date.parse(it.updatedAt) ? { ...it, resultReady: true } : it; } catch { return it; }
+      }));
       case 'queue.add': return queue.add({ ...p, ...(paths.length ? { paths: [...(p.paths || []), ...paths] } : {}) });
       case 'queue.edit': return queue.edit(p);
       case 'queue.update': return queue.update(p);
@@ -661,10 +680,14 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
       case 'dismissBanner': { const b = planBanner(out.plan); if (b.dismissible) patchConfig({ planBannerDismissed: dismissFor(b) }); out.onPlan?.(); return true; }
       case 'testNotification': return ask({ head: 'Test notification', text: 'This is how Bridgerator asks before risky actions. Nothing will run.', buttons: [['allow', 'Allow', ''], ['allow10', 'Allow 10 min', ''], ['always', 'Allow always', ''], ['deny', 'Deny', 'deny']], secs: 60, auto: 'closes', ...popup() });
       case 'checkUpdate': {
-        // The download list on our own site (what the installer would install), not npm.
-        const r = await fetch(`${siteOf(cfg.relay)}/bridgerator-win.json`, { signal: AbortSignal.timeout(10000) });
-        const latest = String((await r.json()).version || '');
-        const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
+        // The download lists on our own site (what the installer would install), not npm: the store-review
+        // channel (install.ps1) and the current one (install-latest.ps1, owner 28.10) — the newer one wins.
+        const site = siteOf(cfg.relay);
+        const ver = async (f) => { try { const r = await fetch(`${site}/${f}`, { signal: AbortSignal.timeout(10000) }); return String((await r.json()).version || ''); } catch { return ''; } };
+        const [main, cur] = await Promise.all([ver('bridgerator-win.json'), ver('bridgerator-win-latest.json')]);
+        if (!main && !cur) throw new Error('the update server gave no version');
+        updateScript = newer(cur, main) ? 'install-latest.ps1' : 'install.ps1';
+        const latest = newer(cur, main) ? cur : main;
         return { latest, current: VERSION, upToDate: !newer(latest, VERSION) };
       }
       case 'update': {
@@ -674,7 +697,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
         if (!/^https:\/\//.test(site)) throw new Error('no https site to update from');
         patchConfig({ updatingFrom: VERSION });
         showNotice({ kind: 'updating', version: String(p.version || '') }, log);
-        const ps = spawn(POWERSHELL, psArgs(`& ([scriptblock]::Create((Invoke-RestMethod '${site.replace(/'/g, "''")}/install.ps1')))`), { windowsHide: true, stdio: 'ignore', env: stripOurs(process.env) });
+        const ps = spawn(POWERSHELL, psArgs(`& ([scriptblock]::Create((Invoke-RestMethod '${site.replace(/'/g, "''")}/${updateScript}')))`), { windowsHide: true, stdio: 'ignore', env: stripOurs(process.env) });
         ps.on('error', (e) => log(`[bridgerator] update did not start: ${e.message}`));
         ps.unref();
         return true;

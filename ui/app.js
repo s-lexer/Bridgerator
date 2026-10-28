@@ -46,6 +46,7 @@ async function loadLang(lang) {
 let state = { state: 'offline', name: '', version: '', settings: { confirm: { enabled: false, ask: {}, timeoutSec: 120 }, allowedDirectories: [], readOnlyDirectories: [] }, queue: {} };
 let queueItems = [], recentItems = [], undoInfo = null;
 let shownSetup = null, shownBatch = null;
+let onboarded = false; try { onboarded = localStorage.getItem('onboarded') === '1'; } catch { /* storage blocked: steps stay */ }
 let page = 'home', qFilter = 'all', rSearch = '', rResult = 'all', helpTopic = 'talk', previewTheme = null, updateInfo = null, safetyTab = 'access';
 const sysDark = window.matchMedia('(prefers-color-scheme: dark)');
 function applyTheme() {
@@ -182,6 +183,7 @@ P.home = () => {
   const p = state.plan;
   const usage = (p && p.plan === 'free' && p.limit ? `<div class="usage"><div class="bar"><div class="b-blue" data-w="${Math.min(100, Math.round(((p.calls || 0) / p.limit) * 100))}"></div></div><span>${esc(t('status.calls', { calls: nf().format(p.calls || 0), limit: nf().format(p.limit) }))}</span></div>` : '') + forecastLine();
   const anyTodo = queueItems.length > 0;
+  if (state.allowOpened && anyTodo && !onboarded) { onboarded = true; try { localStorage.setItem('onboarded', '1'); } catch { /* shown again next time */ } }
   return `<main class="home">${bannerHtml()}
 <div class="head"><h1>${esc(t('status.title'))}</h1><div class="sub">${esc(t('status.sub'))}</div></div>
 <section class="card conn" aria-label="${esc(t('aria.connection'))}">
@@ -195,11 +197,22 @@ P.home = () => {
  <a class="card tile" href="#safety"><span class="k">${esc(t('status.cardConfirm'))}</span><span class="v">${esc(t(state.settings.confirm.enabled ? 'status.on' : 'status.off'))}</span><span class="s">${esc(ro === 1 ? t('status.roFolder1') : t('status.roFolders', { n: ro }))}</span></a>
  <a class="card tile" href="#recent"><span class="k">${esc(t('status.cardLast'))}</span><span class="v">${esc(last ? ago(last.t) : t('status.never'))}</span><span class="s" title="${esc(last ? `${last.tool} · ${last.target}` : '')}">${esc(last ? [last.tool, lastTarget(last.target)].filter(Boolean).join(' · ') : t('status.noActions'))}</span></a>
 </div>
-<section class="card steps" aria-label="${esc(t('aria.getStarted'))}">
+${nowCard()}${onboarded ? '' : `<section class="card steps" aria-label="${esc(t('aria.getStarted'))}">
  <div class="step ${state.allowOpened ? 'ok' : ''}"><span class="check ${state.allowOpened ? 'ok' : 'next'}">${state.allowOpened ? CHECK(12, 3.5) : ''}</span><div class="stack"><span class="t">${esc(t('status.stepAllow'))}</span>${state.allowOpened ? '' : `<span class="h">${esc(t('status.stepAllowHint'))}</span>`}</div>${state.allowOpened ? '' : `<button class="btn btn-secondary w112" data-act="chatgptAllow">${esc(t('status.stepAllowBtn'))}</button>`}</div>
  <div class="step ${anyTodo ? 'ok' : ''}"><span class="check ${anyTodo ? 'ok' : state.allowOpened ? 'next' : ''}">${anyTodo ? CHECK(12, 3.5) : ''}</span><div class="stack"><span class="t">${esc(t('status.step3'))}</span>${anyTodo ? '' : `<span class="h">${esc(t('status.step3Hint'))} <span class="mono">${esc(t('talk.work'))}</span></span>`}</div>${anyTodo ? '' : `<a class="btn btn-secondary w112" href="#queue">${esc(t('status.openQueue'))}</a>`}</div>
-</section></main>`;
+</section>`}</main>`;
 };
+// "Right now" on Status (owner 28.10): what ChatGPT / the agents are doing at the moment, then the last actions.
+function nowCard() {
+  const doing = queueItems.filter((i) => i.status === 'doing');
+  const runs = ((state.agents && state.agents.runs) || []).filter((r) => r.state === 'running');
+  const row = (dot, text, meta, href) => `<a class="nowrow" href="${href}"><span class="sdot ${dot}" aria-hidden="true"></span><span class="t">${esc(text)}</span><span class="n">${esc(meta)}</span></a>`;
+  const live = [...doing.map((i) => row('doing', i.title, [i.worker, ago(Date.parse(i.updatedAt))].filter(Boolean).join(' · '), '#queue')),
+    ...runs.map((r) => row('doing', r.summary || r.task || '', [r.name, ago(Date.parse(r.startedAt))].filter(Boolean).join(' · '), '#delegated'))].join('');
+  const last = recentItems.slice(0, 5).map((x) => row(x.outcome === 'ok' ? 'done' : x.outcome === 'refused' ? 'failed' : 'skipped', [x.tool, lastTarget(x.target)].filter(Boolean).join(' · '), ago(x.t), '#recent')).join('');
+  return `<section class="card now" aria-labelledby="now-h"><h2 id="now-h">${esc(t('status.now'))}</h2>${live || `<div class="hint">${esc(t('status.nowIdle'))}</div>`}
+${last ? `<h2 class="sub-h">${esc(t('status.lastActions'))}</h2>${last}` : ''}</section>`;
+}
 
 const STATUSES = ['todo', 'doing', 'done', 'failed', 'skipped'];
 P.queue = () => {
@@ -212,8 +225,8 @@ P.queue = () => {
     return `<div class="qrow" role="listitem" draggable="true" data-id="${esc(i.id)}">
 <span class="grip" title="${esc(t('queue.drag'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg></span>
 <span class="sdot ${i.status}" aria-hidden="true"></span>
-<div class="qtext"><span class="t ${i.status === 'done' ? 'done' : ''}">${esc(i.title)}</span><span class="n">${esc(i.from ? `${t('queue.fromAi', { from: i.from })} · ${note}` : note)}</span></div>
-<span class="qpill"><span class="pill t-${i.status}">${esc(t(`queue.${i.status}`))}</span></span>
+<div class="qtext" data-act="qopen" data-id="${esc(i.id)}" title="${esc(t('queue.openTask'))}"><span class="t ${i.status === 'done' ? 'done' : ''}">${esc(i.title)}</span><span class="n">${esc(i.from ? `${t('queue.fromAi', { from: i.from })} · ${note}` : note)}</span></div>
+${i.resultReady ? `<button class="btn btn-secondary" data-act="qready" data-id="${esc(i.id)}" title="${esc(i.resultPath)}">${esc(t('queue.closeReady'))}</button>` : ''}<span class="qpill"><span class="pill t-${i.status}">${esc(t(`queue.${i.status}`))}</span></span>
 <button class="icon-btn" data-act="qmenu" data-id="${esc(i.id)}" aria-label="${esc(t('queue.more'))}"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="19" cy="12" r="1.8"></circle></svg></button></div>`;
   }).join('');
   const filters = ['all', 'todo', 'doing', 'done', 'failed'].map((k) => `<button role="tab" aria-selected="${k === qFilter}" data-filter="${k}">${esc(t(`queue.${k}`))}<span class="n">${k === 'all' ? total : count(k)}</span></button>`).join('');
@@ -333,7 +346,7 @@ P.notifications = () => {
   return `<main class="notifications">${bannerHtml()}
 <div class="head"><h1>${esc(t('notify.title'))}</h1><div class="sub">${esc(t('notify.sub'))}</div></div>
 <div class="styles" role="radiogroup" aria-label="${esc(t('aria.style'))}">${style('toast')}${style('popup')}</div>
-<div class="nsplit"><section class="card" aria-label="${esc(t('aria.options'))}">${sw('sound', 'notify.sound')}${sw('offline', 'notify.offline')}${sw('queueDone', 'notify.queueDone')}${sw('queueStalled', 'notify.queueStalled')}${sw('settingsChanged', 'notify.settingsChanged')}${sw('limit', 'notify.limit')}</section>
+<div class="nsplit"><section class="card" aria-label="${esc(t('aria.options'))}">${sw('sound', 'notify.sound')}${sw('offline', 'notify.offline')}${sw('queueDone', 'notify.queueDone')}${sw('queueStalled', 'notify.queueStalled')}${sw('settingsChanged', 'notify.settingsChanged')}${sw('limit', 'notify.limit')}${sw('updates', 'notify.updates')}</section>
 <section class="preview" aria-label="${esc(t('notify.preview'))}"><div class="bar-top"><span class="b">${esc(t('notify.preview'))}</span><div class="seg" role="radiogroup" aria-label="${esc(t('aria.previewTheme'))}">${pv('light')}${pv('dark')}</div></div>
 <div class="toast ${previewTheme}"><div class="app">${LOGO16}<span class="grow">Bridgerator</span><span>⋯</span></div><div class="h">${esc(t('notify.pHead'))}</div><div class="c">${esc(t('notify.pCmd'))}</div><div class="m">${esc(t('notify.pMeta', { name: state.name || 'PC' }))}</div>
 <div class="btns"><span>${esc(t('notify.allow'))}</span><span>${esc(t('notify.allow10'))}</span><span>${esc(t('notify.deny'))}</span></div></div>
@@ -395,9 +408,14 @@ P.help = () => {
 <div class="tip"><span class="k">${esc(t(`help.${d.tipLabel}`))}</span><span class="mono">${esc(d.tip)}</span></div></article></div></main>`;
 };
 
+let renderedPage = null;
 function render() {
   renderNav();
+  // The 2 s refresh redraws the page: keep where the person scrolled (main and inner lists), unless the page changed.
+  const keep = renderedPage === page ? [...document.querySelectorAll('#main, #main .list')].map((x) => x.scrollTop) : [];
   $('#main').outerHTML = P[page]().replace('<main class="', '<main id="main" class="');
+  renderedPage = page;
+  [...document.querySelectorAll('#main, #main .list')].forEach((x, i) => { if (keep[i]) x.scrollTop = keep[i]; });
   document.querySelectorAll('[data-w]').forEach((el) => { el.style.width = `${el.dataset.w}%`; }); // CSSOM: allowed by the CSP
 }
 
@@ -566,7 +584,7 @@ P.agents = () => {
   const mode = lim.mode || 'full';
   const seg = ['read', 'edit', 'full'].map((k) => `<button role="radio" aria-checked="${mode === k}" data-set="delegate.mode" data-value="${k}">${esc(t(`agents.mode_${k}`))}</button>`).join('');
   const nums = AGENT_LIMITS.map(([k, list, label]) => `<div class="cat"><span class="grow">${esc(t(`agents.${k}`))}</span>${numSel(`delegate.${k}`, Number(lim[k] ?? list[0]), list, label)}</div>`).join('');
-  const phrase = (k) => `<div class="phrase"><span class="mono grow">${esc(t(`agents.${k}`))}</span><button class="btn btn-secondary w96" data-copy="${esc(t(`agents.${k}`))}">${esc(t('talk.copy'))}</button></div>`;
+  const phrase = (k) => `<div class="cat phrase"><span class="mono grow">${esc(t(`agents.${k}`))}</span><button class="btn btn-secondary w96" data-copy="${esc(t(`agents.${k}`))}">${esc(t('talk.copy'))}</button></div>`;
   return `<main class="agents">${bannerHtml()}
 <div class="head-row"><div class="head grow"><h1>${esc(t('agents.title'))}</h1><div class="sub">${esc(t('agents.sub'))}</div></div><button class="btn btn-secondary" data-act="detectAgents">${esc(t('agents.refresh'))}</button></div>
 <div role="list" class="card list" id="aglist">${rows}</div>
@@ -574,8 +592,9 @@ P.agents = () => {
 <section class="card confirm-card" aria-labelledby="al-h"><div class="top"><div class="stack"><h2 id="al-h">${esc(t('agents.limits'))}</h2><span class="hint">${esc(t('agents.modeHint'))}</span></div></div>
 <div class="cat"><span class="grow" id="am-l">${esc(t('agents.mode'))}</span><div class="seg w168" role="radiogroup" aria-labelledby="am-l">${seg}</div></div>${nums}
 <div class="note"><span>${esc(t('agents.undoHint'))}</span></div></section>
-<section class="card confirm-card phrases" aria-labelledby="ap-h"><div class="top"><div class="stack"><h2 id="ap-h">${esc(t('agents.sayChatgpt'))}</h2></div></div>${phrase('p1')}${phrase('p2')}
-<div class="top"><div class="stack"><h2>${esc(t('agents.sayOther'))}</h2><span class="hint">${esc(t('agents.p3hint'))}</span></div></div>${phrase('p3')}</section></div>
+<section class="card confirm-card" aria-labelledby="ap-h"><div class="top"><div class="stack"><h2 id="ap-h">${esc(t('agents.sayChatgpt'))}</h2><span class="hint">${esc(t('agents.sayHint'))}</span></div></div>${phrase('p1')}${phrase('p2')}
+<div class="top sep"><div class="stack"><h2>${esc(t('agents.sayOther'))}</h2></div></div>${phrase('p3')}
+<div class="note"><span>${esc(t('agents.p3hint'))}</span></div></section></div>
 </main>`;
 };
 // Agent tasks (owner 21.10: own page, newest on top; "Keep finished agent tasks" in Settings, on by default).
@@ -657,14 +676,23 @@ function setupDialog(ps) {
   $('#layer').append(o); o.querySelector('[data-x]').focus();
 }
 
+// What happened to a task (owner 28.10: a failed task's note could not be read anywhere): status, who, when,
+// the full note and the result file — read-only, selectable.
+function resultBlock(i) {
+  const meta = [i.worker ? `ChatGPT (${i.worker})` : '', i.from ? t('queue.fromAi', { from: i.from }) : '', `${t('edit.updated')} ${when(Date.parse(i.updatedAt))}`].filter(Boolean).join(' · ');
+  return `<div class="field"><span class="flabel">${esc(t('edit.result'))} <span class="pill t-${i.status}">${esc(t(`queue.${i.status}`))}</span></span><span class="note-sm">${esc(meta)}</span>
+${i.note ? `<pre class="diff mono">${esc(i.note)}</pre>` : `<span class="note-sm">${esc(t('edit.noNote'))}</span>`}
+${i.resultPath ? `<span class="note-sm mono sel">${esc(t('edit.resultPath'))}: ${esc(i.resultPath)}</span>` : ''}</div>`;
+}
 function taskDialog(item) {
   const it = item ? { ...item, paths: [...(item.paths || [])] } : { title: '', details: '', paths: [], status: 'todo' };
   const o = document.createElement('div');
   o.className = 'overlay';
   const draw = () => {
-    o.innerHTML = `<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-t"><h2 id="dlg-t">${esc(t(item ? 'edit.titleEdit' : 'edit.titleNew'))}</h2>
-<div class="field"><label for="t-title">${esc(t('edit.task'))}</label><input id="t-title" class="input" maxlength="200" value="${esc(it.title)}"></div>
-<div class="field"><label for="t-details">${esc(t('edit.details'))} <span class="opt">${esc(t('edit.optional'))}</span></label><textarea id="t-details" class="textarea" rows="3" maxlength="4000">${esc(it.details || '')}</textarea></div>
+    o.innerHTML = `<section class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="dlg-t"><h2 id="dlg-t">${esc(t(item ? 'edit.titleEdit' : 'edit.titleNew'))}</h2>
+<div class="field"><label for="t-title">${esc(t('edit.task'))}</label><textarea id="t-title" class="textarea" rows="2" maxlength="200">${esc(it.title)}</textarea></div>
+${item ? resultBlock(item) : ''}
+<div class="field"><label for="t-details">${esc(t('edit.details'))} <span class="opt">${esc(t('edit.optional'))}</span></label><textarea id="t-details" class="textarea" rows="6" maxlength="4000">${esc(it.details || '')}</textarea></div>
 <div class="field"><span class="flabel">${esc(t('edit.files'))}</span><div class="chips">${it.paths.map((p, i) => `<span class="chip inline"><span title="${esc(p)}">${esc(p)}</span><button aria-label="${esc(t('edit.remove', { path: p }))}" data-rm="${i}">✕</button></span>`).join('')}
 <button class="btn btn-dashed" data-pick="file">${esc(t('edit.addFile'))}</button><button class="btn btn-dashed" data-pick="folder">${esc(t('edit.addFolder'))}</button></div><span class="note-sm">${esc(t('edit.dropHint'))}</span></div>
 ${item ? `<div class="head-row"><label for="t-status" class="flabel">${esc(t('edit.status'))}</label><select id="t-status" class="select">${STATUSES.map((s) => `<option value="${s}" ${it.status === s ? 'selected' : ''}>${esc(t(`queue.${s}`))}</option>`).join('')}</select></div>` : ''}
@@ -758,7 +786,7 @@ async function setSetting(key, value) {
 // The title bar moves the window: the host starts the native move (no CSS app-region — it swallowed the buttons' clicks).
 document.addEventListener('mousedown', (e) => { if (e.button === 0 && e.target.closest('.titlebar') && !e.target.closest('button')) rpc('drag').catch(() => {}); });
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('button, a');
+  const el = e.target.closest('button, a, .qtext[data-act]');
   if (!el) return;
   if (el.closest('#layer .dialog, #layer .menu, #layer .snack')) return;
   const d = el.dataset;
@@ -795,6 +823,8 @@ document.addEventListener('click', async (e) => {
     case 'addTask': return taskDialog(null);
     case 'allowAll': return setSetting('allowedDirectories', []);
     case 'qmenu': e.stopPropagation(); return queueMenu(el);
+    case 'qopen': { const it = queueItems.find((x) => x.id === el.dataset.id); return it && taskDialog(it); }
+    case 'qready': try { await rpc('queue.update', { id: el.dataset.id, status: 'done', note: t('queue.closedReady') }); } catch (err) { fail(err); } return refresh();
     case 'clearMenu': e.stopPropagation(); return clearMenu(el);
     case 'amenu': e.stopPropagation(); return autoMenu(el);
     case 'clearRecent': return rpc('recent.clear').then(() => { snack(t('recent.cleared')); refresh(); }, fail);
@@ -833,6 +863,7 @@ document.addEventListener('keydown', (e) => {
   // Esc = the dialog's own Cancel (a settings proposal must get its answer, not just disappear).
   if (e.key === 'Escape') { const l = $('#layer'); if (l.querySelector('.overlay, .menu')) { e.preventDefault(); const x = l.querySelector('.overlay [data-x]'); if (x) x.click(); else closeLayer(); } }
   if (e.key === 'Enter' && e.target.id === 'st-name') e.target.blur();
+  if (e.key === 'Enter' && e.target.id === 't-title') e.preventDefault(); // a task title is one line (the field wraps only to show it whole)
 });
 
 // drag to reorder queue rows
