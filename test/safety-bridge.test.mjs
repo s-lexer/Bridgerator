@@ -205,8 +205,9 @@ test('line limits (owner 27.10): set by bridgerator_settings, live in the engine
   assert.match(text(await settings({ fileWriteLineLimit: 5 })), /from 10 to 10000/);
   const c = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
   fs.writeFileSync(CONFIG, JSON.stringify({ ...c, fileWriteLineLimit: 300 }, null, 2));
-  await until(async () => (await state()).fileWriteLineLimit === 300);
-  assert.equal((await cfgOf()).config.fileWriteLineLimit, 300);
+  // the bridge state flips first, the engine gets the value a moment later: wait for the engine itself
+  await until(async () => (await cfgOf()).config.fileWriteLineLimit === 300);
+  assert.equal((await state()).fileWriteLineLimit, 300);
 });
 
 test('owner 27.10 "ии может менять все": blockedCommands, disabledTools (on again without a restart), own confirm patterns, update', async () => {

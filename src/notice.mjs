@@ -67,7 +67,7 @@ export function noticeText(n) {
     // Daily check of our site (bridge.mjs updateCheck, owner 28.10).
     const v = typeof n.version === 'string' && /^\d+\.\d+\.\d+$/.test(n.version) ? n.version : null;
     if (!v) return undefined;
-    t = [`Bridgerator ${v} is available`, 'Open Bridgerator from the tray → Settings → Update now, or ask ChatGPT to update Bridgerator. Your settings are kept.'];
+    t = [`Bridgerator ${v} is available`, 'Open Bridgerator from the tray → Settings → Update, or ask ChatGPT to update Bridgerator. Your settings are kept.'];
     return { title: t[0], body: t[1], button: null, url: accountUrl() };
   } else if (kind === 'confirm_locked') {
     // V-9: the window / tray toggle could not write confirm.ini (another program holds it): nothing changed.

@@ -35,10 +35,12 @@ test('every extra tool: action enum, honest annotations, short plain description
 
 test('extra tool names are unique and do not clash with the bridge\'s other tools or the engine catalog', { skip: fs.existsSync(RELAY_CATALOG) ? false : 'relay repo not next to the bridge (NOT CHECKED)' }, () => {
   const own = [...CONFIRM_TOOL_DEFS, SETUP_TOOL_DEF, SETTINGS_TOOL_DEF, ...QUEUE_TOOL_DEFS].map((t) => t.name);
-  const engine = JSON.parse(fs.readFileSync(RELAY_CATALOG, 'utf8')).map((t) => t.name);
+  // The relay catalog is the bridge's WHOLE list (engine + own + extra, catalog-for-relay 29.10): a clash = a name twice.
+  const catalog = JSON.parse(fs.readFileSync(RELAY_CATALOG, 'utf8')).map((t) => t.name);
+  assert.equal(new Set(catalog).size, catalog.length, 'a tool name twice in the relay catalog');
   const names = extra.defs.map((d) => d.name);
   assert.equal(new Set(names).size, names.length);
-  for (const n of names) assert.ok(!own.includes(n) && !engine.includes(n), n);
+  for (const n of names) assert.ok(!own.includes(n), n);
   assert.throws(() => createExtra([{ defs: [{ name: 'x' }] }, { defs: [{ name: 'x' }] }]), /registered twice/);
 });
 
