@@ -118,7 +118,7 @@ test('setup: --language other than en / ru stops with a usage line before pairin
 });
 
 test('setup builds the config from the file as it is AFTER the old bridge stopped (a setting it saved meanwhile is kept, X2-17)', () => {
-  const src = fs.readFileSync(CLI, 'utf8');
+  const src = fs.readFileSync(CLI, 'utf8').replace(/\r\n/g, '\n');
   const stop = src.indexOf('      stopRunning();\n'), reread = src.indexOf('prev = readConfig() || prev; cfg = build();'), write = src.indexOf('writeConfig(setupConfig(prev, cfg));');
   assert.ok(stop > 0 && reread > stop && write > reread, `${stop} < ${reread} < ${write}`);
 });

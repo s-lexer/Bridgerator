@@ -294,11 +294,16 @@ export function createPolicy(cfg = {}) {
     filter(result, name, args) {
       if (!denied.length || !result || !Array.isArray(result.content) || FILE_TEXT.has(name)) return result;
       const rel = [];
+      // Engine ≥ 0.3 lists INTO junctions / symlinks with names relative to the listed folder: each entry is also
+      // resolved through its links and dropped when it really lies in an excluded folder (shortcut\deep\pw.txt).
+      let under = null;
       if (name === 'list_directory' && typeof args?.path === 'string') {
+        const root = args.path;
+        under = (line) => { const e = String(line).trim().replace(/^\[(dir|file)\]\s*/i, ''); return !!e && !path.isAbsolute(e) && deniedFor(path.join(root, e)); };
         const at = norm(realish(args.path, base));
         for (const d of denied) if (d.startsWith(at + path.sep)) rel.push(new RegExp(`^${esc(d.slice(at.length + 1))}(?![a-z0-9_.\\-])`));
       }
-      const leaks = (line) => mentionsDenied(line) || rel.some((r) => r.test(flat(line).trim().replace(/^\[(dir|file)\]\s*/, '')));
+      const leaks = (line) => mentionsDenied(line) || under?.(line) || rel.some((r) => r.test(flat(line).trim().replace(/^\[(dir|file)\]\s*/, '')));
       let dropped = 0;
       const content = result.content.map((c) => {
         if (c?.type !== 'text' || typeof c.text !== 'string') return c;

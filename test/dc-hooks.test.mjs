@@ -15,7 +15,7 @@ const fake = (rel) => pathToFileURL(path.join(dist, rel)).href;
 const via = (source) => async () => ({ format: 'module', source });
 
 test('every patch applies to the pinned engine files (an engine update that moved a snippet is caught here)', async () => {
-  const files = ['config.js', 'utils/toolHistory.js', 'utils/fuzzySearchLogger.js', 'utils/trackTools.js', 'utils/open-browser.js', 'terminal-manager.js', 'index.js'];
+  const files = ['config.js', 'utils/toolHistory.js', 'utils/fuzzySearchLogger.js', 'utils/trackTools.js', 'utils/open-browser.js', 'utils/shell.js', 'index.js'];
   for (const rel of files) {
     const src = fs.readFileSync(path.join(dist, rel), 'utf8');
     const r = await load(fake(rel), {}, via(src));
@@ -23,7 +23,7 @@ test('every patch applies to the pinned engine files (an engine update that move
   }
   const hist = String((await load(fake('utils/toolHistory.js'), {}, via(fs.readFileSync(path.join(dist, 'utils/toolHistory.js'), 'utf8')))).source);
   assert.ok(hist.includes('globalThis.__BRG_DC_DIR') && hist.includes('no disk writes of tool calls') && !hist.includes('this.writeQueue.push(record)'), 'both toolHistory patches, in order');
-  const term = String((await load(fake('terminal-manager.js'), {}, via(fs.readFileSync(path.join(dist, 'terminal-manager.js'), 'utf8')))).source);
+  const term = String((await load(fake('utils/shell.js'), {}, via(fs.readFileSync(path.join(dist, 'utils', 'shell.js'), 'utf8')))).source);
   assert.ok(term.includes("'[Console]::OutputEncoding=[Text.Encoding]::UTF8;' + command"), 'PowerShell writes UTF-8 (ru-RU / 866 garbled output)');
   const ob = String((await load(fake('utils/open-browser.js'), {}, via(fs.readFileSync(path.join(dist, 'utils/open-browser.js'), 'utf8')))).source);
   assert.match(ob, /export async function openBrowser\(\) \{\}/); assert.doesNotMatch(ob, /child_process|exec\(/, 'never opens a browser');

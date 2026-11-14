@@ -4,6 +4,7 @@
 //   browser — the signed-in owner confirms a code)
 // bridgerator.cmd run | stop | status | doctor [--json] | confirm on|off [category] | read-only add|remove <dir> | telemetry on|off | uninstall [--all | --keep-config] | --version
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -34,6 +35,7 @@ const DIR = HOME_ARG || (process.env.NODE_TEST_CONTEXT && process.env.BRIDGERATO
 const CONFIG = path.join(DIR, 'config.json');
 const LOG = path.join(DIR, 'bridge.log');
 const VBS = path.join(DIR, 'run-hidden.vbs');
+const OPEN_VBS = path.join(DIR, 'open-window.vbs'), OPEN_REQ = path.join(DIR, 'open-window'); // shortcuts → `open` → the window
 const INI = path.join(DIR, 'confirm.ini'); // on-PC confirmation settings (confirm.mjs), read on every call
 // File copies for Undo (undo.mjs): %LOCALAPPDATA%\Bridgerator\snapshots (always excluded); next to a moved home in tests.
 const SNAP_DIR = DIR === path.join(APPDATA, 'Bridgerator') ? path.join(LOCALAPPDATA, 'Bridgerator', 'snapshots') : path.join(DIR, 'snapshots');
@@ -97,7 +99,7 @@ function log(line) {
   } catch { /* log dir not writable — console only */ }
 }
 
-const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
+const q = (s) => `'${String(s).replace(/['\u2018-\u201B]/g, '$&$&')}'`; // PowerShell also ends a literal at ‘ ’ ‚ ‛
 const ps = (script) => execFileSync(POWERSHELL, psArgs(script), { stdio: 'pipe' }).toString();
 
 // One scheduled task per Windows user: Bridgerator-<SID>.
@@ -140,6 +142,19 @@ function installAutostart() {
     dropOldTaskPs(),
   ].join('; '));
   return `autostart: scheduled task "${taskName()}" (at logon, hidden)`;
+}
+
+// Start menu (always, kept current) and desktop (once: a deleted one stays deleted) shortcuts that open the
+// window (owner 14.11: no shortcut anywhere). Through wscript + a VBS: no console window flashes.
+function installShortcuts(desktop) {
+  fs.writeFileSync(OPEN_VBS, '\ufeff' + openVbs(process.execPath, SELF), 'utf16le');
+  const lnk = (folder) => `$l = $sh.CreateShortcut((Join-Path ([Environment]::GetFolderPath('${folder}')) 'Bridgerator.lnk')); $l.TargetPath = ${q(WSCRIPT)}; $l.Arguments = ${q(`//B //NoLogo "${OPEN_VBS}"`)}; $l.IconLocation = ${q(path.join(PKG_DIR, 'assets', 'bridgerator.ico'))}; $l.Description = 'Bridgerator'; $l.Save()`;
+  ps(['$sh = New-Object -ComObject WScript.Shell', lnk('Programs'), ...(desktop ? [lnk('Desktop')] : [])].join('; '));
+}
+const dropShortcutsPs = "foreach ($f in 'Programs', 'Desktop') { Remove-Item (Join-Path ([Environment]::GetFolderPath($f)) 'Bridgerator.lnk') -Force -ErrorAction SilentlyContinue }";
+export function openVbs(node, app) {
+  const s = (x) => `"${String(x).replace(/"/g, '""')}"`;
+  return ['On Error Resume Next', `node = ${s(node)}`, `app = ${s(app)}`, 'CreateObject("WScript.Shell").Run """" & node & """ """ & app & """ open", 0, False', ''].join('\r\n');
 }
 
 // Hidden; waits for the bridge and restarts it after a crash (exit code ≠ 0) with a growing pause
@@ -311,7 +326,7 @@ export function startRemoveLater(dirs, parent, { spawnFn = spawn } = {}) {
 }
 
 // Uninstall deletes only what Bridgerator itself creates there, then the folder if it is empty.
-export const OUR_FILES = ['config.json', 'confirm.ini', 'queue.json', 'recent.jsonl', 'usage.json', 'bridge.log', 'bridge.log.1', 'run-hidden.vbs', 'confirm.approved', 'delegate.json'];
+export const OUR_FILES = ['config.json', 'confirm.ini', 'queue.json', 'recent.jsonl', 'usage.json', 'bridge.log', 'bridge.log.1', 'run-hidden.vbs', 'confirm.approved', 'delegate.json', 'open-window.vbs', 'open-window'];
 export function removeOurFiles(dir) {
   if (!fs.existsSync(dir)) return; // already gone: nothing to remove
   for (const n of OUR_FILES) fs.rmSync(path.join(dir, n), { force: true, maxRetries: 3 });
@@ -423,6 +438,7 @@ async function main() {
       console.log(`confirm:  ${readSettings(INI).enabled ? 'on' : 'off'} (a window on this PC before deletions / system commands; settings: ${INI}; bridgerator.cmd confirm on|off)`);
       if (!cfg.protectSensitive) console.log('protect sensitive folders: off (startup programs, PowerShell profiles, .ssh, cloud logins, AppData) — turn on in the Bridgerator window → Safety');
       console.log(installAutostart());
+      try { installShortcuts(!prev.shortcuts); const c = readConfig(); if (c) writeConfig({ ...c, shortcuts: true }); } catch (e) { console.log(`Could not add the Start menu shortcut (${e.message}).`); }
       startHidden();
     } catch (e) {
       try { startHidden(); } catch { /* no task yet */ } // the bridge that ran before keeps running
@@ -437,6 +453,17 @@ async function main() {
     return;
   }
   if (cmd === 'run') {
+    // One bridge per Bridgerator folder (= Windows user, or --home): an npm and an app bridge with one key knocked
+    // each other off the relay (bug 31.10, ChatGPT recon 14.11). A named pipe frees itself when the process dies.
+    // A second one exits 0 — its autostart loop then ends too (run-hidden.vbs: 0 = stopped on purpose).
+    if (process.platform === 'win32') {
+      const one = net.createServer();
+      const pipe = `\\\\.\\pipe\\bridgerator-run-${crypto.createHash('sha256').update(DIR.toLowerCase()).digest('hex').slice(0, 16)}`;
+      const err = await new Promise((ok) => { one.once('error', ok); one.listen(pipe, () => ok(null)); });
+      if (err?.code === 'EADDRINUSE') { log('[bridgerator] another Bridgerator is already running for this user — this one exits'); process.exit(0); }
+      // Any other pipe error: run without the guard rather than not at all.
+      if (err) log(`[bridgerator] single-instance check failed (${err.code || err.message}) — running anyway`); else one.unref();
+    }
     let cfg = readConfig();
     if (!cfg) throw new Error(`no config at ${CONFIG} — run the install command from ${ACCOUNT_URL}`);
     checkRelay(cfg.relay);
@@ -479,6 +506,8 @@ async function main() {
     dc = await startEngine({ ...cfg, dcConfigDir: path.join(DIR, 'dc'), configDir: DIR, confirmIni: INI, configFile: CONFIG, snapshotsDir: SNAP_DIR, scriptsDir: SCRIPTS_DIR }, log, { ask: tray ? (q) => tray.ask(q) : undefined });
     dc.cfgName = () => readConfig()?.deviceName;
     dc.openWindow = (page) => tray?.open(page);
+    const openReq = () => { try { const t = fs.statSync(OPEN_REQ).mtimeMs; fs.rmSync(OPEN_REQ, { force: true }); if (Date.now() - t < 120000) tray?.open('home'); } catch { /* no request */ } };
+    fs.watchFile(OPEN_REQ, { interval: 1000, persistent: false }, openReq); openReq();
     dc.onPlan = pushTray;
     dc.onLink = (state, name) => {
       dc.linkState = state; if (name) dc.linkName = name;
@@ -518,6 +547,8 @@ async function main() {
     if (!r.ok) process.exitCode = 1;
     return;
   }
+  // The shortcuts: the window of the running bridge (it watches OPEN_REQ); not running → started, it opens then.
+  if (cmd === 'open') { fs.writeFileSync(OPEN_REQ, String(Date.now())); if (!isRunning()) startHidden(); return; }
   if (cmd === 'stop') { stopRunning(); console.log('Bridgerator stopped (it starts again at the next logon).'); return; }
   if (cmd === 'status') {
     const cfg = readConfig();
@@ -577,7 +608,8 @@ async function main() {
       try {
         ps([
           `Unregister-ScheduledTask -TaskName ${q(taskName())} -Confirm:$false -ErrorAction SilentlyContinue`,
-          dropOldTaskPs(),
+          `Unregister-ScheduledTask -TaskName ${q(taskName().replace(/^Bridgerator-/, 'Bridgerator-Update-'))} -Confirm:$false -ErrorAction SilentlyContinue`,
+          dropOldTaskPs(), dropShortcutsPs,
           "Remove-Item 'HKCU:\\Software\\Classes\\AppUserModelId\\Bridgerator' -Recurse -Force -ErrorAction SilentlyContinue",
         ].join('; '));
       } catch { /* not installed */ }
@@ -594,7 +626,7 @@ async function main() {
       if (['automations.json', 'runner.ps1'].some((n) => fs.existsSync(path.join(SCRIPTS_DIR, n)))) fs.rmSync(SCRIPTS_DIR, { recursive: true, force: true, maxRetries: 3 });
       // The tray window's browser data and installer leftovers under %LOCALAPPDATA%\Bridgerator.
       // (+ the compiled helpers cache and a previous app folder an interrupted update left behind)
-      try { for (const n of fs.readdirSync(path.join(LOCALAPPDATA, 'Bridgerator'))) if (n === 'webview' || n === 'snapshots' || n === 'cache' || /^tmp-[0-9a-f]{32}$/.test(n) || /^app\.old-[0-9a-f]{32}$/.test(n)) fs.rmSync(path.join(LOCALAPPDATA, 'Bridgerator', n), { recursive: true, force: true, maxRetries: 3 }); } catch { /* none */ }
+      try { for (const n of fs.readdirSync(path.join(LOCALAPPDATA, 'Bridgerator'))) if (n === 'webview' || n === 'snapshots' || n === 'cache' || ['update.vbs', 'update.log', 'update-install.ps1'].includes(n) || /^tmp-[0-9a-f]{32}$/.test(n) || /^app\.old-[0-9a-f]{32}$/.test(n)) fs.rmSync(path.join(LOCALAPPDATA, 'Bridgerator', n), { recursive: true, force: true, maxRetries: 3 }); } catch { /* none */ }
     }
     const ownNode = fs.existsSync(path.join(NODE_DIR, 'node.exe'));
     const prog = programFiles();
@@ -638,7 +670,7 @@ async function main() {
     console.log(`Also remove this computer in your account: ${accountUrlOf(cfg)}`);
     return;
   }
-  console.log('usage: bridgerator.cmd setup [--token <key> | --pair] [--allow <dir>]... [--deny <dir>]... [--read-only <dir>]... [--language en|ru] [--no-telemetry] | run | stop | status | doctor [--json] | confirm on|off [category] | read-only add|remove <dir> | telemetry on|off | uninstall [--all | --keep-config] | --version');
+  console.log('usage: bridgerator.cmd setup [--token <key> | --pair] [--allow <dir>]... [--deny <dir>]... [--read-only <dir>]... [--language en|ru] [--no-telemetry] | run | open | stop | status | doctor [--json] | confirm on|off [category] | read-only add|remove <dir> | telemetry on|off | uninstall [--all | --keep-config] | --version');
 }
 
 // The hidden bridge has no console: its startup errors go to bridge.log too.

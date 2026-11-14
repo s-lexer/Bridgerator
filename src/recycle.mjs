@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { POWERSHELL, psArgs } from './win.mjs';
 import { runFilesPs, stripOurs } from './ask.mjs';
 
-const VERBS = new Set(['remove-item', 'ri', 'rm', 'del', 'erase', 'rd', 'rmdir']);
+export const VERBS = new Set(['remove-item', 'ri', 'rm', 'del', 'erase', 'rd', 'rmdir']);
 const MAX_TARGETS = 1000;
 const RECURSE = new Set(['-recurse', '-r', '-rf', '-fr', '--recursive', '/s']);
 const QUIET = new Set(['-force', '-f', '--force', '-v', '-verbose', '/q', '/f', '/a', '-confirm:$false']);

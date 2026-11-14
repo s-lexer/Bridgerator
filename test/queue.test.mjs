@@ -35,6 +35,10 @@ test('limits: 500 items, title / details / note / paths lengths; strict statuses
   const d3 = JSON.parse(queueTool(q, 'queue_add', { title: 'Dup B' }).content[0].text);
   assert.equal(d3.added, 0); assert.equal(d3.skipped[0].duplicate_of, d1[1].id); assert.match(d3.message, /allowDuplicate/);
   assert.equal(JSON.parse(queueTool(q, 'queue_add', { title: 'Dup B', allowDuplicate: true }).content[0].text).item.title, 'Dup B');
+  // The same title twice in ONE list (ChatGPT recon 14.11): the second is skipped too.
+  const d4 = JSON.parse(queueTool(q, 'queue_add', { items: [{ title: 'Dup E' }, { title: 'dup e ' }] }).content[0].text);
+  assert.deepEqual(d4.items.map((x) => x.title), ['Dup E']);
+  assert.equal(d4.skipped[0].duplicate_of, 'earlier in this list');
   assert.equal(JSON.parse(queueTool(q, 'queue_add', { title: 'Dup N', items: null }).content[0].text).item.title, 'Dup N', 'items: null = one step');
   q.update({ id: d1[0].id, status: 'failed' });
   assert.equal(JSON.parse(queueTool(q, 'queue_add', { title: 'Dup A' }).content[0].text).item.title, 'Dup A', 'a failed item may be added again');

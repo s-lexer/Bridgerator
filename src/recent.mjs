@@ -5,13 +5,17 @@ import fs from 'node:fs';
 
 export const KEEP = 100;
 export const DAYS = 7;
+// A secret typed into a command (password=…, -Password …, --token …, Bearer …) is masked before it is kept or
+// shown (ChatGPT recon 14.11). ponytail: the usual spellings only; an unlabeled secret stays as typed.
+const SECRET = /((?:pass(?:word)?|pwd|token|secret|api[-_]?key)\s*[=:]\s*|(?:^|\s)--?(?:pass(?:word)?|token|secret|api[-_]?key)\s+|bearer\s+)("[^"]*"|'[^']*'|[^\s"']+)/gi;
+export const maskSecrets = (s) => String(s).replace(SECRET, '$1****');
 const short = (s, n = 300) => { s = String(s ?? ''); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
 
 export function target(a = {}) {
   if (!a || typeof a !== 'object') return '';
   if (a.source && a.destination) return short(`${a.source} → ${a.destination}`);
   const t = a.command ?? a.input ?? a.path ?? a.file_path ?? (Array.isArray(a.paths) ? a.paths.join(', ') : undefined) ?? a.pattern ?? a.title ?? a.id;
-  return t === undefined ? '' : short(typeof t === 'string' ? t : JSON.stringify(t));
+  return t === undefined ? '' : short(maskSecrets(typeof t === 'string' ? t : JSON.stringify(t)));
 }
 
 export function createRecent(file, { keepFile = false, now = Date.now } = {}) {

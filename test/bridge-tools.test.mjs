@@ -290,3 +290,28 @@ test('bug 28.10: the window marks an open item whose result file is in place (ne
   await dc.rpc('queue.update', { id, status: 'done', note: 'closed' });
   assert.equal(await ready(), undefined, 'done: no button');
 });
+
+test('bridgerator_settings per chat (session): a chat\'s old copy of the folder list keeps what another chat added; no session = the list as sent', async () => {
+  const prev = answer; answer = 'allow';
+  try {
+    const call = (session, s) => dc.call('bridgerator_settings', s ? { action: 'set', settings: s } : { action: 'get' }, { session });
+    const ro0 = () => JSON.parse(fs.readFileSync(CONFIG, 'utf8')).readOnlyDirectories.map((x) => x.toLowerCase());
+    await call('chat-a'); await call('chat-b');
+    await call('chat-b', { readOnlyDirectories: [ro, work] });
+    const r = await call('chat-a', { readOnlyDirectories: [ro, other] });
+    assert.deepEqual(ro0(), [ro, work, other].map((x) => x.toLowerCase()));
+    assert.match(text(r), /Kept folders another chat added meanwhile: .*Работа/);
+    // Removing a read-only folder lowers protection: asks (the earlier tests' Deny is still in cooldown), so the
+    // computed change is what is checked. A saw [ro, work, other] and sent [ro, work] → only other goes.
+    const r2 = text(await call('chat-a', { readOnlyDirectories: [ro, work] }));
+    assert.match(r2, /Read-only: −\S*Другое/); assert.doesNotMatch(r2, /Работа/);
+    const r3 = text(await call('', { readOnlyDirectories: [ro] }));   // no conversation id: the whole list as before
+    assert.match(r3, /Работа/); assert.match(r3, /Другое/);
+    // A set of another key does not make the chat "see" the lists (review 14.11): C's old copy still keeps D's folder.
+    const extra = path.join(root, 'Ещё'); fs.mkdirSync(extra, { recursive: true });
+    await call('chat-c'); const seenC = JSON.parse(fs.readFileSync(CONFIG, 'utf8')).readOnlyDirectories;
+    await call('chat-d'); await call('chat-d', { readOnlyDirectories: [...seenC, extra] });
+    await call('chat-c', { fileReadLineLimit: 1000 });
+    assert.match(text(await call('chat-c', { readOnlyDirectories: seenC })), /Kept folders another chat added meanwhile: .*Ещё/);
+  } finally { answer = prev; }
+});

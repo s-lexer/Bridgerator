@@ -108,6 +108,11 @@ test('B1-19: a delete command on blockedCommands is left to the engine (refused)
   assert.equal(binned.length, n);
   assert.match(text(r), /blocked|not allowed/i);
   assert.equal(fs.existsSync(W('blocked.txt')), true);
+  // Not a plain delete (no Recycle Bin path): refused by Bridgerator too, engine 0.3 no longer stops an alias on the list (review 14.11).
+  for (const c of [`erase "${W('blocked.txt')}"; echo x`, `cmd /c erase /q "${W('blocked.txt')}"`]) {
+    assert.match(text(await dc.call('start_process', { command: c, timeout_ms: 5000 })), /blocked on this PC/);
+    assert.equal(fs.existsSync(W('blocked.txt')), true);
+  }
 });
 
 test('B1-23: two parallel writes to one file each record their own before/after (Undo goes back one step)', async () => {

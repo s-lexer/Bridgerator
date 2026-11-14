@@ -56,3 +56,12 @@ test('review R1/R2/R6: confirm patterns are one line, without nested repeats, an
   assert.equal(widens(c, { key: 'confirm.patterns', value: [] }), true);
   assert.equal(widens(c, { key: 'update', value: true }), true, 'update asks when askSettings is on');
 });
+
+test('mergeDirs: only this chat\'s adds / removes against what it saw go onto the current list', async () => {
+  const { mergeDirs } = await import('../src/settings-tool.mjs');
+  assert.deepEqual(mergeDirs(['C:\\A'], ['C:\\A', 'C:\\Z'], ['C:\\A', 'C:\\Y']), ['C:\\A', 'C:\\Y', 'C:\\Z']);
+  assert.deepEqual(mergeDirs(['C:\\A', 'C:\\Y'], ['c:\\a'], ['C:\\A', 'C:\\Y', 'C:\\Q']), ['C:\\A', 'C:\\Q']);
+  assert.deepEqual(mergeDirs(['C:\\A'], [], ['C:\\A', 'C:\\Y'], true), []);       // allowed: empty = all folders
+  assert.deepEqual(mergeDirs(['C:\\A'], [], ['C:\\A', 'C:\\Y']), ['C:\\Y']);    // read-only: removes only A
+  assert.deepEqual(mergeDirs([], [], ['C:\\Y'], true), ['C:\\Y']);                  // a stale "all folders" changes nothing
+});

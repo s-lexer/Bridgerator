@@ -63,6 +63,44 @@ public class BrFrame : System.Windows.Forms.NativeWindow {
     base.WndProc(ref m);
   }
 }
+// The Explorer-style folder picker (IFileOpenDialog + FOS_PICKFOLDERS) with an address bar a path can be
+// pasted into; WinForms' FolderBrowserDialog on .NET Framework is the old tree (owner 14.11). null = cancelled.
+[ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")] class BrFileOpenDialog {}
+[ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IBrShellItem {
+  void BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+  void GetParent(out IBrShellItem ppsi);
+  void GetDisplayName(uint sigdn, [MarshalAs(UnmanagedType.LPWStr)] out string name);
+}
+[ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IBrFileDialog {
+  [PreserveSig] int Show(IntPtr parent);
+  void SetFileTypes(uint c, IntPtr f); void SetFileTypeIndex(uint i); void GetFileTypeIndex(out uint i);
+  void Advise(IntPtr e, out uint c); void Unadvise(uint c);
+  void SetOptions(uint o); void GetOptions(out uint o);
+  void SetDefaultFolder(IBrShellItem i); void SetFolder(IBrShellItem i); void GetFolder(out IBrShellItem i);
+  void GetCurrentSelection(out IBrShellItem i);
+  void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string n); void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string n);
+  void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string t);
+  void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string t); void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string t);
+  void GetResult(out IBrShellItem i);
+}
+public static class BrPick {
+  public static string Folder(IntPtr owner, string title) {
+    var d = (IBrFileDialog)new BrFileOpenDialog();
+    try {
+      uint o; d.GetOptions(out o);
+      d.SetOptions(o | 0x20 | 0x40 | 0x800);   // FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST
+      if (!string.IsNullOrEmpty(title)) d.SetTitle(title);
+      int hr = d.Show(owner);
+      if (hr == unchecked((int)0x800704C7)) return null;   // cancelled
+      Marshal.ThrowExceptionForHR(hr);                      // a dialog that failed: the caller falls back
+      IBrShellItem r; d.GetResult(out r);
+      try { string p; r.GetDisplayName(0x80058000, out p); return p; }   // SIGDN_FILESYSPATH
+      finally { Marshal.ReleaseComObject(r); }
+    } finally { Marshal.ReleaseComObject(d); }
+  }
+}
 '@
 [void][BrWin]::SetProcessDPIAware()
 [Windows.Forms.Application]::EnableVisualStyles()
@@ -265,8 +303,10 @@ function Open-Window([string]$page = 'home', [switch]$Prewarm) {
           'hide' { $f.Hide(); & $post @{ id = $msg.id; result = $true } }
           'droppedPaths' { & $post @{ id = $msg.id; result = @($paths) } }
           'pickFolder' {
-            $d = New-Object Windows.Forms.FolderBrowserDialog
-            $r = if ($d.ShowDialog($f) -eq 'OK') { $d.SelectedPath } else { $null }
+            $r = try { [BrPick]::Folder($f.Handle, [string]$msg.params.title) } catch {
+              # No COM dialog (very old shell): the WinForms tree as before.
+              $d = New-Object Windows.Forms.FolderBrowserDialog; if ($d.ShowDialog($f) -eq 'OK') { $d.SelectedPath } else { $null }
+            }
             & $post @{ id = $msg.id; result = $r }
           }
           'pickFiles' {

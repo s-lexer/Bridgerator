@@ -14,9 +14,9 @@ import { showNotice } from './notice.mjs';
 import { usage } from './telemetry.mjs';
 import { createGate, askOnPc, CONFIRM_TOOL_DEFS, setIniPatterns } from './confirm.mjs';
 import { SETUP_TOOL_DEF, validateSetup, diffSetup, applySetup, terminalTools } from './setup-tool.mjs';
-import { SETTINGS_TOOL_DEF, validateSettings, widens, describe, DEFAULTS, LINE_LIMITS, SHELLS, presetOf, presetChanges, expandPresets } from './settings-tool.mjs';
+import { SETTINGS_TOOL_DEF, validateSettings, widens, describe, DEFAULTS, LINE_LIMITS, SHELLS, presetOf, presetChanges, expandPresets, mergeDirs } from './settings-tool.mjs';
 import { shorten } from './tool-text.mjs';
-import { parseDelete, recycle as recycleOnPc, purgeFromBin } from './recycle.mjs';
+import { parseDelete, VERBS as DELETE_VERBS, recycle as recycleOnPc, purgeFromBin } from './recycle.mjs';
 import { createSnapshots, changedPaths, undoGroups, SNAP_DEFAULTS, UNDO_TOOL_DEF } from './undo.mjs';
 import { createFuse, wantAwake, FUSE_DEFAULTS } from './guard.mjs';
 import { createQueue, queueTool, stalledItems, QUEUE_TOOL_DEFS, QUEUE_TOOL_NAMES } from './queue.mjs';
@@ -79,6 +79,27 @@ export async function localDrivesAsync() {
 }
 const DRIVES_MS = 60000;
 
+/**
+ * PowerShell that runs the installer at `url` only when it carries a valid Authenticode signature of our company
+ * (SERIALNUMBER=193808466 — kept across certificate renewals; scripts/sign.mjs OUR_SIGNER). Auto-update runs it
+ * without a click (review 14.11, owner: "всё, что нужно, подписывай"); anything wrong → a line in update.log.
+ */
+export function signedInstallPs(url) {
+  const u = String(url).replace(/'/g, "''");
+  return [
+    "$ErrorActionPreference = 'Stop'; $d = Join-Path $env:LOCALAPPDATA 'Bridgerator'; [void][IO.Directory]::CreateDirectory($d)",
+    'try {',
+    "  Import-Module (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1')",
+    '  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12',
+    "  $f = Join-Path $d 'update-install.ps1'",
+    `  Invoke-WebRequest '${u}' -OutFile $f -UseBasicParsing`,
+    '  $s = Get-AuthenticodeSignature -LiteralPath $f',
+    "  if ($s.Status -ne 'Valid' -or [string]$s.SignerCertificate.Subject -notmatch 'SERIALNUMBER=193808466(,|$)') { throw \"the installer is not signed by Bridgerator ($($s.Status))\" }",
+    '  & ([scriptblock]::Create([IO.File]::ReadAllText($f)))',
+    "} catch { Add-Content -LiteralPath (Join-Path $d 'update.log') -Value \"$(Get-Date -Format s) update not run: $_\" }",
+  ].join('\n');
+}
+
 export async function startEngine(cfg, log = console.log, { ask: askArg, recycle: recycleArg, drives: drivesArg, delegate: delegateOpts } = {}) {
   const ask0 = askArg || askOnPc;
   const recycle = recycleArg || recycleOnPc;
@@ -123,7 +144,9 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
     // The engine's terminal starts in the first allowed folder (never in the Bridgerator folder) and
     // its environment carries no Bridgerator variables (the config dir is removed by dc-isolate).
     cwd: engineDir,
-    env: { ...engineEnv(), DC_TELEMETRY_ENABLED: 'false', DESKTOP_COMMANDER_DISABLE_TELEMETRY: '1', DC_FLAG_URL: 'data:application/json,{"flags":{}}', BRIDGERATOR_DC_CONFIG_DIR: cfg.dcConfigDir },
+    // UV_THREADPOOL_SIZE set from the start: engine ≥ 0.3 otherwise restarts itself as a copy on Windows to size
+    // libuv's pool, and the copy would start without BRIDGERATOR_DC_CONFIG_DIR (dc-isolate removes it) → refuses to run.
+    env: { ...engineEnv(), UV_THREADPOOL_SIZE: '16', DC_TELEMETRY_ENABLED: 'false', DESKTOP_COMMANDER_DISABLE_TELEMETRY: '1', DC_FLAG_URL: 'data:application/json,{"flags":{}}', BRIDGERATOR_DC_CONFIG_DIR: cfg.dcConfigDir },
     stderr: 'pipe', // last lines kept for the log when the engine dies
   });
   const tail = [];
@@ -255,6 +278,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
     try { patchConfig({ deviceName: name }); log(`[bridgerator] computer name from the account: "${name}"`); } catch { /* read-only: shown from the link */ }
   };
   // Started after an update from the window: say so once (the marker survives setup, cli.setupConfig).
+  const failedUpdate = cfg.updatingFrom === VERSION;
   if (cfg.updatingFrom && cfg.configFile) {
     if (cfg.updatingFrom !== VERSION) showNotice({ kind: 'updated', version: VERSION }, log);
     try { patchConfig({ updatingFrom: null }); } catch { /* read-only settings: shown again next start */ }
@@ -268,10 +292,18 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
   // The person sees every settings change not made in the window (notify.settingsChanged, on by default; owner 26.10).
   // `on` is read before the change: the call that turns this notice off is still announced (review 26.10).
   const toldSettings = (by, lines, on = cfg.notify?.settingsChanged !== false) => { const what = lines.filter((l) => l && l !== 'No changes' && !/: unchanged$/.test(l)).sort((a, b) => /settingsChanged/.test(b) - /settingsChanged/.test(a)); if (what.length && on) showNotice({ kind: 'settings_changed', by, what }, log); };
-  async function setup(args) {
+  async function setup(args, meta = {}) {
     const v = validateSetup(args);
     if (v.error) return say(`Not applied: ${v.error}`, true);
     if (!cfg.configFile) return say('Not applied: settings can only be changed on a configured PC.', true);
+    const r = await setup0(v, meta);
+    if (meta.kept?.length && !r.isError && r.content?.[0]) r.content[0].text += keptNote(meta.kept);
+    const sent = DIR_KEYS.filter((k) => Array.isArray(args[k]));
+    if (sent.length && !r.isError && !r.notConfirmed) try { rememberDirs(meta.session, (await rpc('getState')).settings, sent); } catch { /* next get */ }
+    return r;
+  }
+  async function setup0(v, meta) {
+    meta.kept = mergeSeen(meta.session, v.value, (await rpc('getState')).settings);
     if (v.value.preset) {
       const st = accessState({ ...(v.value.allowedDirectories ? { allowedDirectories: v.value.allowedDirectories } : {}), ...(v.value.readOnlyDirectories ? { readOnlyDirectories: v.value.readOnlyDirectories } : {}) });
       for (const c of presetChanges(v.value.preset, st, drives())) v.value[c.key] = c.value;
@@ -300,17 +332,53 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
   let updating = false;
   async function updateNow() {
     if (updating) return 'An update is already starting.';
-    let c;
-    try { c = await rpc('checkUpdate'); } catch (e) { return `Could not check for updates: ${e?.message || e}`; }
-    if (c.upToDate) return `Bridgerator ${c.current} is up to date.`;
     updating = true;
+    let c;
+    try { c = await rpc('checkUpdate'); } catch (e) { updating = false; return `Could not check for updates: ${e?.message || e}`; }
+    if (c.upToDate) { updating = false; return `Bridgerator ${c.current} is up to date.`; }
     try { await rpc('update', { version: c.latest }); } catch (e) { updating = false; return `The update did not start: ${e?.message || e}`; }
+    // The installer hands off to its own task and its result is only in update.log: still running 15 min later
+    // = it did not get through; a later check may try again (review 14.11).
+    setTimeout(() => { updating = false; log(`[bridgerator] update to ${c.latest} did not restart Bridgerator in 15 min — see %LOCALAPPDATA%\\Bridgerator\\update.log`); }, 15 * 60000).unref();
     return `Updating Bridgerator ${c.current} → ${c.latest}: it restarts by itself in about a minute; this chat's tools come back after that.`;
   }
+  // The folder lists each chat last saw (relay passes ChatGPT's anonymized conversation id, `session`): a
+  // chat's set changes only what IT added / removed (mergeDirs; bug 14.11). Unknown chat → the list as sent.
+  // ponytail: in memory, 200 chats; a restart forgets them (the next get learns again).
+  const seenDirs = new Map();
+  const DIR_KEYS = ['allowedDirectories', 'readOnlyDirectories'];
+  // keys: the lists this chat has seen now (get = both; set/setup = only the ones it sent — the others it never saw).
+  const rememberDirs = (session, s, keys = DIR_KEYS) => {
+    if (!session || !s || !keys.length) return;
+    const b = { ...seenDirs.get(session) };
+    for (const k of keys) b[k] = [...(s[k] || [])];
+    seenDirs.delete(session); seenDirs.set(session, b);
+    if (seenDirs.size > 200) seenDirs.delete(seenDirs.keys().next().value);
+  };
+  // → the folders another chat added that this chat's list would have dropped (kept), per key.
+  const mergeSeen = (session, values, cur) => {
+    const base = session && seenDirs.get(session), kept = [];
+    if (!base) return kept;
+    for (const key of DIR_KEYS) if (Array.isArray(values[key]) && base[key]) {
+      const m = mergeDirs(base[key], values[key], cur[key] || [], key === 'allowedDirectories');
+      const sent = new Set(values[key].map((x) => x.toLowerCase()));
+      kept.push(...m.filter((x) => !sent.has(x.toLowerCase())));
+      values[key] = m;
+    }
+    return kept;
+  };
+  const keptNote = (kept) => (kept.length ? ` Kept folders another chat added meanwhile: ${kept.join(', ')}.` : '');
   // bridgerator_settings: get everything; set → applied at once (askSettings on: lowering protection after Apply on the PC).
-  async function settingsTool(args = {}) {
+  async function settingsTool(args = {}, meta = {}) {
     const snap = async () => (await rpc('getState')).settings;
-    if (args.action === 'get') return say(JSON.stringify({ current: toolView(await snap()), defaults: DEFAULTS, alwaysBlocked: 'Bridgerator\'s own settings and program folders (not a setting)' }, null, 2));
+    const r = await settingsTool0(args, meta, snap);
+    if (meta.kept?.length && !r.isError && r.content?.[0]) r.content[0].text += keptNote(meta.kept);
+    const sent = DIR_KEYS.filter((k) => Array.isArray(args.settings?.[k]));
+    if (args.action === 'set' && sent.length && !r.isError && !r.notConfirmed) try { rememberDirs(meta.session, await snap(), sent); } catch { /* next get */ }
+    return r;
+  }
+  async function settingsTool0(args, meta, snap) {
+    if (args.action === 'get') { const s = await snap(); rememberDirs(meta.session, s); return say(JSON.stringify({ current: toolView(s), defaults: DEFAULTS, alwaysBlocked: 'Bridgerator\'s own settings and program folders (not a setting)' }, null, 2)); }
     if (args.action !== 'set') return say('action must be "get" or "set"', true);
     const v = validateSettings(args.settings);
     if (v.error) return say(`Not changed: ${v.error}`, true);
@@ -320,6 +388,9 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
     out.updateMsg = '';
     const updated = (r) => (out.updateMsg ? say(`${r.content[0].text}. ${out.updateMsg}`, !!r.isError) : r);
     const cur = await snap();
+    const vals = Object.fromEntries(v.changes.filter((c) => DIR_KEYS.includes(c.key)).map((c) => [c.key, c.value]));
+    meta.kept = mergeSeen(meta.session, vals, cur);
+    for (const c of v.changes) if (c.key in vals) c.value = vals[c.key];
     v.changes = expandPresets(v.changes, cur, drives());
     // Owner 21.10: everything applies at once unless "Ask before AI changes settings" is on (then only lowering protection asks).
     const ask1 = (c) => cfg.askSettings === true && widens(cur, c);
@@ -339,11 +410,11 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
     return { ...say(`${done.length ? `Applied: ${done.join('; ')}. ` : ''}Not applied (the person at the PC ${r === 'cooldown' ? 'declined a few minutes ago' : 'cancelled or didn\'t answer'}): ${lines.join('; ')}`), notConfirmed: true };
   }
 
-  async function call(name, args) {
+  async function call(name, args, meta = {}) {
     if (!(await slot())) return { content: [{ type: 'text', text: 'This PC is busy with other chats — try again in a moment.' }], isError: true, busy: true };
     inFlight++;
     try {
-      const r = await call0(name, args);
+      const r = await call0(name, args, meta);
       const undo = r?.undoId;
       if (undo) delete r.undoId;
       recent.record(name, args, outcomeOf(r), undo ? { undo } : undefined);
@@ -353,12 +424,12 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
       return r;
     } finally { inFlight--; lastCall = Date.now(); release(); }
   }
-  async function call0(name, args) {
+  async function call0(name, args, meta = {}) {
     if (out.paused) { wasPaused = true; return { content: [{ type: 'text', text: 'Bridgerator is paused on this PC. Ask the person to resume it (tray icon → Resume).' }], isError: true, paused: true }; }
     if (wasPaused) { wasPaused = false; fuse.reset(); }
-    if (name === SETUP_TOOL_DEF.name) return setup(args);
+    if (name === SETUP_TOOL_DEF.name) return setup(args, meta);
     if (extra.has(name)) return extra.call(name, args, { cfg, policy, gate, log, popup, engine: call0, rpc, extra, version: VERSION });
-    if (name === SETTINGS_TOOL_DEF.name && cfg.configFile) return settingsTool(args);
+    if (name === SETTINGS_TOOL_DEF.name && cfg.configFile) return settingsTool(args, meta);
     if (snapshots && name === UNDO_TOOL_DEF.name) return undoTool(args);
     if (virtual.has(name)) return gate.tool(name);
     if (queue && name === 'queue_clear' && args?.status === 'all') {
@@ -375,11 +446,16 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
     // While a question is on the screen, new commands wait for the person's answer.
     if ((name === 'start_process' || name === 'interact_with_process') && gate.pending) await gate.idle();
     // Listed in a plan the person approved on the PC (bridgerator_plan): no question of its own, not counted by the fuse.
+    // A delete command whose verb is on the PC's blockedCommands list is refused here, before any question: engine ≥ 0.3
+    // matches the list against the real program, so a PowerShell alias on it (erase, del) no longer stops the alias, and
+    // the Recycle Bin path below never reaches the engine. All delete verbs are one program (Remove-Item) for this check.
+    if (name === 'start_process' && typeof args?.command === 'string' && namesBlocked(args.command, true)) {
+      return { content: [{ type: 'text', text: 'Not run: this delete command is blocked on this PC (blockedCommands). The person can change the list in Bridgerator → Safety.' }], isError: true, refused: true };
+    }
     const planned = batch.covers(name, args, gate);
     const stop = planned ? null : await gate.gate(name, args);
     if (stop) return stop;
     // A plain delete command → the Recycle Bin instead (recycle.mjs); other delete commands only count.
-    // A command on the PC's blockedCommands list is left to the engine, which refuses it.
     const del = name === 'start_process' && cfg.recycleBin !== false && typeof args?.command === 'string' && !namesBlocked(args.command) ? parseDelete(args.command, engineDir) : null;
     // Under the per-path lock too: snapshot → recycle → commit can't interleave with a call on the same path.
     if (del) return locked(del.targets.map((p) => p.toLowerCase()), () => deleteToBin(del, args, planned));
@@ -464,7 +540,14 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
     }
     return out;
   };
-  const namesBlocked = (command) => { const w = commandWords(command); return (cfg.blockedCommands || []).some((b) => typeof b === 'string' && w.includes(b.trim().toLowerCase().replace(/\.(exe|com)$/, ''))); };
+  // deletes = true: only a delete verb counts; `Remove-Item` on the list (the program) stops all its aliases, an alias stops itself.
+  const namesBlocked = (command, deletes = false) => {
+    const w = commandWords(command).filter((x) => !deletes || DELETE_VERBS.has(x));
+    return (cfg.blockedCommands || []).some((e) => {
+      const b = typeof e === 'string' && e.trim().toLowerCase().replace(/\.(exe|com)$/, '');
+      return b && (w.includes(b) || (b === 'remove-item' && w.length > 0 && w.some((x) => DELETE_VERBS.has(x))));
+    });
+  };
   async function deleteToBin(del, args, planned = false) {
     for (const p of del.targets) { const why = policy.writable(p); if (why) return { content: [{ type: 'text', text: why }], isError: true, refused: true }; }
     // Listed in a plan the person approved: not counted by the fuse (like the engine path).
@@ -525,7 +608,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
   out.wantAwake = () => wantAwake({ enabled: cfg.keepAwake !== false, inFlight: inFlight + delegate.running, lastCall, queue: queueCounts() });
   // What bridgerator_settings get shows: the names "set" takes.
   const toolView = (s) => {
-    const { confirm, telemetry, ...rest } = s;
+    const { confirm, telemetry, autoUpdate: _au, ...rest } = s;
     return { ...rest, confirm: { enabled: confirm.enabled, ...confirm.ask, timeoutSeconds: confirm.timeoutSec, patterns: (confirm.patterns || []).map((r) => r.source) }, telemetryEnabled: telemetry };
   };
   async function readResource(uri) {
@@ -545,14 +628,29 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
   const BOOL_NOTIFY = ['sound', 'offline', 'queueDone', 'queueStalled', 'settingsChanged', 'limit', 'updates'];
   // The installer the last checkUpdate found the newest version in (update runs that one).
   let updateScript = 'install.ps1';
-  // "Update available" notice (owner 28.10: nobody learned of new versions): 5 min after start, then daily;
-  // once per version per run. notify.updates, on by default.
-  let toldUpdate = '';
+  // 5 min after start, then daily. Auto-update (owner 14.11 "почему он не обновляется автоматически"; window
+  // switch, on by default): once ChatGPT has left this PC alone for 10 min, else again in 30 min. Off → the
+  // "update available" notice (owner 28.10), once per version per run; notify.updates, on by default.
+  let toldUpdate = '', retry = null;
+  // Busy = a call or delegate run in flight, the last call (or this start) < 10 min ago, or a queue item worked on
+  // in the last hour. ponytail: the person at the window isn't counted; the restart takes ~1 min.
+  const busy = () => inFlight || delegate.running || Date.now() - Math.max(lastCall, started) < 10 * 60000
+    || (queue ? queue.list('doing').some((it) => Date.now() - Date.parse(it.updatedAt) < 3600000) : false);
   const updateCheck = async () => {
-    if (cfg.notify?.updates === false) return;
-    try { const c = await rpc('checkUpdate'); if (!c.upToDate && c.latest !== toldUpdate) { toldUpdate = c.latest; showNotice({ kind: 'update_available', version: c.latest }, log); } } catch { /* offline: next check */ }
+    clearTimeout(retry); retry = null;
+    try {
+      const c = await rpc('checkUpdate');
+      if (c.upToDate) return;
+      if (cfg.autoUpdate !== false) {
+        if (busy()) { retry = setTimeout(updateCheck, 30 * 60000); retry.unref(); return; }
+        log(`[bridgerator] auto-update ${VERSION} → ${c.latest}: ${await updateNow()}`);
+        return;
+      }
+      if (cfg.notify?.updates !== false && c.latest !== toldUpdate) { toldUpdate = c.latest; showNotice({ kind: 'update_available', version: c.latest }, log); }
+    } catch { /* offline: next check */ }
   };
-  setTimeout(updateCheck, 5 * 60000).unref();
+  // An update that did not get through (this version started again with updatingFrom = itself): no new try for a day.
+  setTimeout(updateCheck, failedUpdate ? 24 * 3600000 : 5 * 60000).unref();
   setInterval(updateCheck, 24 * 3600000).unref();
 
   // Requests of the Bridgerator window (tray helper). Made by the person at the PC: no extra prompt.
@@ -567,7 +665,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
             confirm: conf, allowedDirectories: cfg.allowedDirectories || [], readOnlyDirectories: cfg.readOnlyDirectories || [],
             theme: popup().theme, language: cfg.language || 'en', localHistory: cfg.localHistory === true, telemetry: cfg.telemetryEnabled !== false,
             popupStyle: popup().style, notify: Object.fromEntries(BOOL_NOTIFY.map((k) => [k, cfg.notify?.[k] !== false])),
-            autostart: cfg.autostart !== false, deviceName: cfg.deviceName || out.linkName || '',
+            autostart: cfg.autostart !== false, autoUpdate: cfg.autoUpdate !== false, deviceName: cfg.deviceName || out.linkName || '',
             preset: presetOf(accessState(), drives()), terminal: terminalOn(), protectSensitive: cfg.protectSensitive !== false,
             recycleBin: cfg.recycleBin !== false, snapshots: snapCfg(), fuse: fuseCfg(), keepAwake: cfg.keepAwake !== false, askSettings: cfg.askSettings === true,
             fileReadLineLimit: lineLimit('fileReadLineLimit'), fileWriteLineLimit: lineLimit('fileWriteLineLimit'), defaultShell: shell(), blockedCommands: blocked || [], disabledTools: cfg.disabledTools || [],
@@ -610,6 +708,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
         if (key === 'language' && ['en', 'ru'].includes(value)) { patchConfig({ language: value }); return true; }
         if (key === 'localHistory' && typeof value === 'boolean') { patchConfig({ localHistory: value }); recent.setKeep(value); return true; }
         if (key === 'telemetryEnabled' && typeof value === 'boolean') { patchConfig({ telemetryEnabled: value }); return true; }
+        if (key === 'autoUpdate' && typeof value === 'boolean') { patchConfig({ autoUpdate: value }); return true; }
         if (key === 'popupStyle' && ['toast', 'popup'].includes(value)) { patchConfig({ popupStyle: value }); return true; }
         const n = /^notify\.(\w+)$/.exec(String(key));
         if (n && BOOL_NOTIFY.includes(n[1]) && typeof value === 'boolean') { patchConfig({ notify: { ...(cfg.notify || {}), [n[1]]: value } }); return true; }
@@ -691,13 +790,16 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
         return { latest, current: VERSION, upToDate: !newer(latest, VERSION) };
       }
       case 'update': {
-        // Owner 21.10: no console for the person. Our own signed installer from our own site, hidden; it stops
+        // Owner 21.10: no console for the person. Our own installer from our own site, run only when signed by us, hidden; it stops
         // this bridge and starts the new one. The new version says "updated" (updatingFrom, kept by setup).
         const site = siteOf(cfg.relay);
         if (!/^https:\/\//.test(site)) throw new Error('no https site to update from');
+        // Clicked twice / with an auto-update: one run (both would share update-install.ps1).
+        if (Date.now() - updateRunAt < 120000) return true;
+        updateRunAt = Date.now();
         patchConfig({ updatingFrom: VERSION });
         showNotice({ kind: 'updating', version: String(p.version || '') }, log);
-        const ps = spawn(POWERSHELL, psArgs(`& ([scriptblock]::Create((Invoke-RestMethod '${site.replace(/'/g, "''")}/${updateScript}')))`), { windowsHide: true, stdio: 'ignore', env: stripOurs(process.env) });
+        const ps = spawn(POWERSHELL, psArgs(signedInstallPs(`${site}/${updateScript}`)), { windowsHide: true, stdio: 'ignore', env: stripOurs(process.env) });
         ps.on('error', (e) => log(`[bridgerator] update did not start: ${e.message}`));
         ps.unref();
         return true;
@@ -825,7 +927,7 @@ export function connect(cfg, dc, log = console.log) {
     stats = usage(cfg, new Set(dc.tools.map((t) => t.name)), cfg.usageFile);
     setInterval(() => stats.tick(), 3600 * 1000).unref();
     const inner = dc.call;
-    dc.call = async (name, args) => { const r = await inner(name, args); stats.count(name, !!r?.isError); return r; };
+    dc.call = async (name, args, meta) => { const r = await inner(name, args, meta); stats.count(name, !!r?.isError); return r; };
   }
   const ws = new WebSocket(cfg.relay, { handshakeTimeout: 15000, maxPayload: 4 * 1024 * 1024 });
   let helloName = '', helloGen = 0;
@@ -886,7 +988,9 @@ export function connect(cfg, dc, log = console.log) {
     }
     if (msg.type !== 'call' || !msg.callId || typeof msg.name !== 'string') return;
     let result;
-    try { result = await dc.call(msg.name, msg.args && typeof msg.args === 'object' && !Array.isArray(msg.args) ? msg.args : {}); } catch (e) { result = { content: [{ type: 'text', text: `bridge error: ${e?.message || e}` }], isError: true }; }
+    // session: ChatGPT's anonymized conversation id (relay ≥ 1.7.18; per-chat folder lists).
+    const meta = { session: typeof msg.session === 'string' ? msg.session.slice(0, 200) : '' };
+    try { result = await dc.call(msg.name, msg.args && typeof msg.args === 'object' && !Array.isArray(msg.args) ? msg.args : {}, meta); } catch (e) { result = { content: [{ type: 'text', text: `bridge error: ${e?.message || e}` }], isError: true }; }
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'result', callId: msg.callId, result }));
   }
   const die = (why, ms = RECONNECT_MS) => {

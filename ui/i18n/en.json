@@ -329,6 +329,8 @@
   "upToDate": "Up to date",
   "updateAvail": "Version {v} is available",
   "updateNow": "Update",
+  "autoUpdate": "Update automatically",
+  "autoUpdateHint": "A new version installs by itself when ChatGPT has not used this PC for 10 minutes.",
   "updating": "Updating… Bridgerator restarts by itself in about a minute.",
   "checking": "Checking…",
   "checkFailed": "Couldn't check right now",

@@ -209,7 +209,8 @@ export function queueTool(q, name, args = {}, { blocked } = {}) {
         const want = Array.isArray(args.items) ? args.items : [args], keep = [], skipped = [];
         // A "doing" duplicate says since when (bug 26.10: after a dropped chat nobody knew how to take it over).
         const mins = (t) => Math.max(0, Math.round((Date.now() - Date.parse(t)) / 60000));
-        for (const x of want) { const d = args.allowDuplicate === true ? undefined : open.get(key(x?.title)); if (d) skipped.push({ title: x.title, duplicate_of: d.id, status: d.status, ...(d.status === 'doing' ? { doingMinutes: mins(d.updatedAt), ...(d.worker ? { worker: d.worker } : {}) } : {}) }); else keep.push(x); }
+        if (want.length > 100) q.addMany(want);   // refused there (1–100), before same-list duplicates could shrink it
+        for (const x of want) { const d = args.allowDuplicate === true ? undefined : open.get(key(x?.title)); if (d) skipped.push({ title: x.title, duplicate_of: d.id, status: d.status, ...(d.status === 'doing' ? { doingMinutes: mins(d.updatedAt), ...(d.worker ? { worker: d.worker } : {}) } : {}) }); else { keep.push(x); if (key(x?.title)) open.set(key(x.title), { id: 'earlier in this list', status: 'todo' }); } }
         const doing = skipped.some((x) => x.status === 'doing');
         const why = skipped.length ? { skipped, message: `Already in the queue (open), not added again: work on those items (queue_list / queue_next {id}), or pass allowDuplicate: true to add them anyway.${doing ? ` A "doing" item belongs to another chat; one with no update for ${STALE_MS / 60000} minutes is handed out again by queue_next {id} (resumed). If the person says that chat is gone, queue_update {id, status: "todo"} frees it now.` : ''}` } : {};
         if (!keep.length && skipped.length) return ok({ added: 0, ...why });

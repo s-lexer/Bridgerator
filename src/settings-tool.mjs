@@ -125,6 +125,18 @@ export function validateSettings(input, opts) {
 }
 
 const low = (a) => a.map((x) => x.toLowerCase());
+/**
+ * One chat's change of a folder list put onto the CURRENT list (bug 14.11: chats sent their old copy of the whole
+ * list and dropped folders another chat had added meanwhile). base = the list this chat last saw: only the
+ * folders it added / removed against that base change. An empty allowed list = "all folders": taken as is.
+ */
+export function mergeDirs(base, given, cur, emptyMeansAll = false) {
+  if (emptyMeansAll && !given.length) return base.length ? [] : cur;   // cleared by this chat; its old "all" = no change
+  const k = (x) => x.toLowerCase(), had = new Set(base.map(k)), now = new Set(given.map(k));
+  const out = cur.filter((x) => !had.has(k(x)) || now.has(k(x)));
+  for (const x of given) if (!had.has(k(x)) && !out.some((y) => k(y) === k(x))) out.push(x);
+  return out;
+}
 /** Does this change lower protection or widen access (→ the person's OK on the PC)? */
 export function widens(cur, { key, value }) {
   if (EXTRA.owns(key)) return EXTRA.widens(cur, { key, value });

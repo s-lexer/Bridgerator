@@ -12,7 +12,7 @@
 //   open-browser.js   — no-ops: the bridge runs hidden and never opens a browser (the engine opens
 //                       its vendor's welcome page on first run).
 //   index.js          — no Chrome pre-download at start (~400 MB); PDF export still fetches it on demand.
-//   terminal-manager  — PowerShell (the default shell) writes UTF-8: the engine decodes output as UTF-8,
+//   utils/shell.js    — (engine ≥ 0.3; was terminal-manager) PowerShell (the default shell) writes UTF-8: the engine decodes output as UTF-8,
 //                       so on Russian & co. Windows (console code page 866/1251) text came out as garbage.
 //   search-manager    — a finished search is kept 30 min after its last read, not 5 (bug 26.10: with 5 chats on one
 //                       PC the model read results minutes later and got "Search session … not found"); the error
@@ -25,7 +25,7 @@ const PATCHES = [
   { file: /[\\/]dist[\\/]utils[\\/]fuzzySearchLogger\.js$/, from: "const logDir = path.join(os.homedir(), '.claude-server-commander-logs');", to: "const logDir = globalThis.__BRG_DC_DIR || path.join(os.homedir(), '.claude-server-commander-logs');" },
   { file: /[\\/]dist[\\/]utils[\\/]trackTools\.js$/, from: 'export async function trackToolCall(toolName, args) {\n', to: 'export async function trackToolCall(toolName, args) {\n    return; // bridgerator: no local log of tool arguments\n' },
   { file: /[\\/]dist[\\/]utils[\\/]open-browser\.js$/, from: 'export async function openWelcomePage', replaceAll: 'export async function openBrowser() {}\nexport async function openWelcomePage() {}\n' },
-  { file: /[\\/]dist[\\/]terminal-manager\.js$/, from: "args: ['-Command', command],", to: "args: ['-Command', '[Console]::OutputEncoding=[Text.Encoding]::UTF8;' + command]," },
+  { file: /[\\/]dist[\\/]utils[\\/]shell\.js$/, from: "args: ['-Command', command],", to: "args: ['-Command', '[Console]::OutputEncoding=[Text.Encoding]::UTF8;' + command]," },
   { file: /[\\/]dist[\\/]search-manager\.js$/, from: 'cleanupSessions(maxAge = 5 * 60 * 1000) {', to: 'cleanupSessions(maxAge = 30 * 60 * 1000) {' },
   { file: /[\\/]dist[\\/]search-manager\.js$/, from: 'throw new Error(`Search session ${sessionId} not found`);', to: 'throw new Error(`Search session ${sessionId} not found: a finished search is kept 30 minutes after it was last read, and a Bridgerator restart drops all searches. Run start_search again.`);' },
   { file: /[\\/]dist[\\/]index\.js$/, from: '            ensureChromeAvailable();\n', to: '            // bridgerator: no Chrome pre-download\n' },
