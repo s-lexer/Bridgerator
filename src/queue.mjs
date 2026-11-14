@@ -22,8 +22,8 @@ const HANDOFF = { from: { type: 'string', maxLength: MAX_FROM, description: 'Who
 
 export const QUEUE_TOOL_DEFS = [
   { name: 'queue_list', description: `List the task queue the person keeps on this PC (a checklist of things to do): counts and items (id, title, status, note, worker, updatedAt, from, resultPath), optionally only one status.`, inputSchema: { type: 'object', additionalProperties: false, properties: { status: { type: 'string', enum: STATUSES } } } },
-  { name: 'queue_next', description: `Take the next item of the task queue: returns the first "todo" item and marks it "doing" (nothing when the queue is empty). An item left "doing" for 30 minutes without an update (another chat stopped) is returned first, with resumed: true. Several chats can work through one queue at once; each call gets a different item. Pass worker = a short name for this chat (e.g. its title) so the person sees who is on it. ${RULE}`, inputSchema: { type: 'object', additionalProperties: false, properties: { worker: STR(80), id: { type: 'string', description: 'take this "todo" item instead of the first one' } } } },
-  { name: 'queue_update', description: `Set an item's status (doing / done / failed / skipped / todo) with a short result note.`, inputSchema: { type: 'object', additionalProperties: false, required: ['id', 'status'], properties: { id: ID, status: { type: 'string', enum: STATUSES }, note: STR(MAX_NOTE) } } },
+  { name: 'queue_next', description: `Take the next item of the task queue: returns the first "todo" item and marks it "doing" (nothing when the queue is empty). Returns a token for queue_update. An item "doing" 30 minutes without an update (another chat stopped) comes first, with resumed: true and its last note as checkpoint — continue from there. Parallel chats each get a different item. worker = a short name for this chat. ${RULE}`, inputSchema: { type: 'object', additionalProperties: false, properties: { worker: STR(80), id: { type: 'string', description: 'take this "todo" item instead of the first one' } } } },
+  { name: 'queue_update', description: `Set an item's status (doing / done / failed / skipped / todo) with a short result note; pass the token queue_next gave. On a long item, call it with status "doing" after each step and a note "done: … next: …": that keeps the item yours and lets another chat continue from the note if this one stops. LEASE_LOST = the item went to another chat: stop working on it.`, inputSchema: { type: 'object', additionalProperties: false, required: ['id', 'status'], properties: { id: ID, status: { type: 'string', enum: STATUSES }, note: STR(MAX_NOTE), token: { type: 'string', maxLength: 40, description: 'the token from queue_next' } } } },
   { name: 'queue_add', description: `Add steps to the task queue (e.g. when planning a bigger job with the person): one { title, details?, paths?, from?, resultPath? } or items: [...] (1–100). Another AI handing work to ChatGPT sets from (its name) and resultPath (a file for the result), then reads the outcome with queue_list. A step whose title matches an open (todo / doing) item is not added again — the reply names that item; allowDuplicate: true adds it anyway.`, inputSchema: { type: 'object', additionalProperties: false, properties: { title: STR(MAX_TITLE), details: STR(MAX_DETAILS), paths: PATHS, ...HANDOFF, allowDuplicate: { type: 'boolean' }, items: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', additionalProperties: false, required: ['title'], properties: { title: STR(MAX_TITLE), details: STR(MAX_DETAILS), paths: PATHS, ...HANDOFF } } } } } },
   { name: 'queue_clear', description: 'Remove finished items from the task queue: status done, failed or skipped. status "all" removes every item and needs the person\'s OK on the PC.', inputSchema: { type: 'object', additionalProperties: false, properties: { status: { type: 'string', enum: ['done', 'failed', 'skipped', 'all'] } } } },
   { name: 'queue_edit', description: 'Change the title, details, paths or result file of a queue item.', inputSchema: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: ID, title: STR(MAX_TITLE), details: STR(MAX_DETAILS), paths: PATHS, resultPath: HANDOFF.resultPath } } },
@@ -114,18 +114,26 @@ export function createQueue(file, { now = () => new Date().toISOString(), onChan
       const it = stale || pick || sorted().find((x) => x.status === 'todo');
       if (!it) return null;
       if (stale) it.resumedFrom = it.worker || 'another chat';
+      // A new lease on every take (ChatGPT recon 14.11): the chat that had it before gets LEASE_LOST on its next update.
+      it.lease = crypto.randomUUID().slice(0, 13); it.fence = (it.fence || 0) + 1;
       it.status = 'doing'; it.updatedAt = now();
       if (w) it.worker = w; else delete it.worker;
       save(); return stale ? { ...it, resumed: true } : it;
     }); },
-    update({ id, status, note } = {}) { return commit(() => {
+    // ai: a chat that passes a token (any status, todo too) must pass the current take's one; no token (null / absent) =
+    // a chat on an older tool schema — ChatGPT keeps an app's schemas until Refresh tools — works as before (review
+    // 14.11: this is the compatibility trade-off; it is no weaker than 1.1.18). The person's window never needs it.
+    update({ id, status, note, token } = {}, { ai = false } = {}) { return commit(() => {
       const it = get(str(id, 40, 'id', true));
       if (!STATUSES.includes(status)) throw new Error(`status must be one of ${STATUSES.join(', ')}`);
+      if (ai && typeof token === 'string' && token !== it.lease) {
+        throw new Error(`LEASE_LOST: item ${it.id} is not yours any more — after 30 minutes without an update it was handed to another chat. Stop working on it; queue_list shows its state.`);
+      }
       const n = note !== undefined ? str(note, MAX_NOTE, 'note') : undefined;
       it.status = status; it.updatedAt = now();
       if (note !== undefined) it.note = n;
       if (['done', 'failed', 'skipped'].includes(status)) it.doneAt = it.updatedAt; else delete it.doneAt;
-      if (status !== 'doing') delete it.worker;
+      if (status !== 'doing') { delete it.worker; delete it.lease; }
       save(); return it;
     }); },
     edit({ id, title, details, paths: p, resultPath } = {}) { return commit(() => {
@@ -196,11 +204,17 @@ export function queueTool(q, name, args = {}, { blocked } = {}) {
     return w.length ? { warnings: w } : {};
   };
   const ok = (v) => ({ content: [{ type: 'text', text: JSON.stringify(v, null, 2) }] });
+  const pub = ({ lease, ...x }) => x;   // another chat never sees an item's token
   try {
     switch (name) {
       case 'queue_list': return ok({ counts: q.counts(), items: q.list(args.status).map(({ id, title, status, note, worker, updatedAt, details, paths, from, resultPath }) => ({ id, title, status, ...(note ? { note } : {}), ...(worker ? { worker } : {}), updatedAt, ...(details ? { details } : {}), ...(paths ? { paths } : {}), ...(from ? { from } : {}), ...(resultPath ? { resultPath } : {}) })) });
-      case 'queue_next': { const it = q.next(args); return ok(it ? { item: it, ...warn([it]) } : { item: null, message: 'The queue is empty — tell the person and stop.' }); }
-      case 'queue_update': return ok({ item: q.update(args) });
+      case 'queue_next': {
+        const it = q.next(args);
+        if (!it) return ok({ item: null, message: 'The queue is empty — tell the person and stop.' });
+        const { lease, ...item } = it;
+        return ok({ item, token: lease, ...(it.resumed && it.note ? { checkpoint: `Another chat stopped here — continue from its last note, don't redo what it says is done: ${it.note}` } : {}), ...warn([it]) });
+      }
+      case 'queue_update': return ok({ item: pub(q.update(args, { ai: true })) });
       case 'queue_add': {
         // A second chat given the same request re-added the whole set (E2E 26.10): an open item with the same
         // title is skipped and named. Only the AI's tool; the window adds what the person types.
@@ -219,8 +233,8 @@ export function queueTool(q, name, args = {}, { blocked } = {}) {
         return ok({ items: its, ...why, ...warn(its) });
       }
       case 'queue_clear': { if (args.status === 'all') throw new Error('clearing every item needs the person\'s OK'); const gone = q.clear({ status: args.status || 'finished' }); return ok({ removed: gone.length, counts: q.counts() }); }
-      case 'queue_edit': { const it = q.edit(args); return ok({ item: it, ...warn([it]) }); }
-      case 'queue_reorder': return ok({ items: q.reorder(args) });
+      case 'queue_edit': { const it = pub(q.edit(args)); return ok({ item: it, ...warn([it]) }); }
+      case 'queue_reorder': return ok({ items: q.reorder(args).map(pub) });
       default: return { content: [{ type: 'text', text: `unknown queue tool ${name}` }], isError: true };
     }
   } catch (e) {

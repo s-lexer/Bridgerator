@@ -2,7 +2,10 @@
 // LOGIC: critical-logic/bridge.md ("Mass-action fuse", "Keep awake").
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createFuse, wantAwake, AWAKE_AFTER_MS, AWAKE_QUEUE_MS } from '../src/guard.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createFuse, wantAwake, countFiles, AWAKE_AFTER_MS, AWAKE_QUEUE_MS } from '../src/guard.mjs';
 import { createLink } from '../src/tray.mjs';
 
 test('fuse: up to the limit per minute passes; one more trips; old hits fall out of the minute', () => {
@@ -40,4 +43,16 @@ test('tray link: the helper\'s power report reaches the bridge; the state carrie
   assert.deepEqual(got, [{ on: true, ac: true }, { on: false, ac: false }, { on: false, ac: true }]);
   l.state({ state: 'online', awake: true });
   assert.equal(sent.at(-1).awake, true);
+});
+
+test('fuse counts files: a folder = the entries under it, subfolders too (up to the cap), a file = 1, a missing path = 1', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'brg-fuse-'));
+  fs.mkdirSync(path.join(d, 'a', 'b'), { recursive: true });
+  for (const f of ['1', 'a/2', 'a/b/3', 'a/b/4']) fs.writeFileSync(path.join(d, f), 'x');
+  assert.equal(countFiles([d], 100), 6);   // 4 files + 2 folders
+  assert.equal(countFiles([d], 3), 3);
+  assert.equal(countFiles([path.join(d, '1'), path.join(d, 'gone')], 100), 2);
+  assert.equal(countFiles([path.join(d, 'a', 'b')], 100), 2);
+  fs.mkdirSync(path.join(d, 'e', 'f', 'g'), { recursive: true }); assert.equal(countFiles([path.join(d, 'e')], 100), 2, 'empty folders count: the walk stays bounded');
+  fs.rmSync(d, { recursive: true, force: true });
 });

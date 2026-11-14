@@ -315,3 +315,8 @@ test('bridgerator_settings per chat (session): a chat\'s old copy of the folder 
     assert.match(text(await call('chat-c', { readOnlyDirectories: seenC })), /Kept folders another chat added meanwhile: .*Ещё/);
   } finally { answer = prev; }
 });
+
+test('rpc update (window Update / AI / auto-update) starts without throwing; a second click within 2 min starts nothing new (lab 14.11: 1.1.18 threw on an undeclared variable)', async () => {
+  assert.equal(await dc.rpc('update', { version: '9.9.9' }), true);
+  assert.equal(await dc.rpc('update', { version: '9.9.9' }), true);
+});

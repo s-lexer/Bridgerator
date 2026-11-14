@@ -1,8 +1,23 @@
 // LOGIC: see critical-logic/bridge.md ("Mass-action fuse", "Keep awake").
+import fs from 'node:fs';
+import path from 'node:path';
 // Mass-action fuse (off by default): more than `limit` deletions / moves within a minute → the bridge
 // pauses itself and asks on the PC whether to continue (no answer = stays paused).
 export const FUSE_DEFAULTS = { enabled: false, limit: 20 };
 export const FUSE_WINDOW_MS = 60000;
+// The fuse counts FILES, not commands (ChatGPT recon 14.11): a folder = the files under it, stopping at `cap`
+// (no need to count past the limit). Links / junctions are not followed; an unreadable path counts 1.
+export function countFiles(paths, cap) {
+  let n = 0;
+  const walk = (p) => {
+    let st; try { st = fs.lstatSync(p); } catch { n++; return; }
+    if (!st.isDirectory()) { n++; return; }
+    let list; try { list = fs.readdirSync(p, { withFileTypes: true }); } catch { n++; return; }
+    for (const d of list) { if (n >= cap) return; if (d.isDirectory()) { n++; walk(path.join(p, d.name)); } else n++; }
+  };
+  for (const p of paths) { if (n >= cap) break; walk(p); }
+  return Math.max(1, Math.min(n, cap));
+}
 
 export function createFuse({ now = Date.now, windowMs = FUSE_WINDOW_MS } = {}) {
   let hits = [];                 // [{ t, n }]

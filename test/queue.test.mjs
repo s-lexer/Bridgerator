@@ -253,3 +253,32 @@ test('bug 26.10: a duplicate of a "doing" item says since when, who holds it and
   assert.match(r.message, /queue_update \{id, status: "todo"\}/);
   assert.match(r.message, /30 minutes/);
 });
+
+test('lease (recon 14.11): queue_next gives a token; a chat whose item went to another one gets LEASE_LOST; the note is the checkpoint', () => {
+  let clock = Date.parse('2026-11-14T10:00:00Z');
+  const q = createQueue(file(), { now: () => new Date(clock).toISOString() });
+  queueTool(q, 'queue_add', { title: 'long job' });
+  const a = res(queueTool(q, 'queue_next', { worker: 'A' }));
+  assert.ok(a.token && !a.item.lease, 'the token comes apart from the item');
+  // A's step: progress note with its token keeps the item; a wrong token is refused.
+  assert.equal(res(queueTool(q, 'queue_update', { id: a.item.id, status: 'doing', note: 'done: 1-3 next: 4', token: a.token })).item.note, 'done: 1-3 next: 4');
+  assert.match(queueTool(q, 'queue_update', { id: a.item.id, status: 'doing', token: 'wrong' }).content[0].text, /LEASE_LOST/);
+  // A goes quiet for 30 min → B takes it over, gets A's note as checkpoint and a new token.
+  clock += 31 * 60000;
+  const b = res(queueTool(q, 'queue_next', { worker: 'B' }));
+  assert.equal(b.item.resumed, true); assert.match(b.checkpoint, /done: 1-3 next: 4/); assert.notEqual(b.token, a.token);
+  assert.ok(!JSON.stringify(res(queueTool(q, 'queue_list', {}))).includes(b.token), 'queue_list never shows a token');
+  // A's old token can't free B's item either (review 14.11); null = no token (ChatGPT fills optional params with null).
+  assert.match(queueTool(q, 'queue_update', { id: a.item.id, status: 'todo', token: a.token }).content[0].text, /LEASE_LOST/);
+  assert.equal(res(queueTool(q, 'queue_update', { id: a.item.id, status: 'doing', note: 'n', token: null })).item.status, 'doing');
+  // A wakes up: its done is refused, B's goes through.
+  assert.match(queueTool(q, 'queue_update', { id: a.item.id, status: 'done', token: a.token }).content[0].text, /LEASE_LOST.*another chat/);
+  assert.equal(res(queueTool(q, 'queue_update', { id: a.item.id, status: 'done', token: b.token })).item.status, 'done');
+  // A chat on the old schema (no token) is not refused — as before the lease.
+  queueTool(q, 'queue_add', { title: 'old schema' }); const o = res(queueTool(q, 'queue_next', {}));
+  assert.equal(res(queueTool(q, 'queue_update', { id: o.item.id, status: 'done' })).item.status, 'done');
+  // The person's window (no ai flag) and freeing to todo need no token.
+  queueTool(q, 'queue_add', { title: 'second' }); const c = res(queueTool(q, 'queue_next', {}));
+  assert.equal(res(queueTool(q, 'queue_update', { id: c.item.id, status: 'todo' })).item.status, 'todo');
+  queueTool(q, 'queue_next', {}); assert.equal(q.update({ id: c.item.id, status: 'skipped' }).status, 'skipped');
+});

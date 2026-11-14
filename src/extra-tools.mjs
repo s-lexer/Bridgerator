@@ -30,8 +30,9 @@ import * as screen from './screen-tool.mjs';
 import * as automations from './automations.mjs';
 import * as plans from './batch.mjs';
 import * as delegate from './delegate.mjs';
+import * as apps from './uia-tool.mjs';
 
-export const EXTRA_MODULES = [doctor, docs, search, photos, software, pcinfo, screen, automations, plans, delegate];
+export const EXTRA_MODULES = [doctor, docs, search, photos, software, pcinfo, screen, automations, plans, delegate, apps];
 
 /** The registry of EXTRA_MODULES (settings-tool.mjs reads the settings part of it). */
 export const extraRegistry = () => (shared ||= createExtra());

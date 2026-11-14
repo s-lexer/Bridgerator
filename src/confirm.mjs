@@ -90,6 +90,8 @@ export function findMatch(name, args = {}, ask = DEFAULT_ASK, patterns = []) {
   if (ask.move && name === 'move_file') return { cat: 'move', fragment: '' };
   if (ask.install && name === 'software' && ['install', 'upgrade'].includes(args?.action)) return { cat: 'install', fragment: '' };
   if (text && ask.install && (f = hit(RX.install, [text]))) return { cat: 'install', fragment: f };
+  // apps act presses / types in a program window: asked like a command when "any command" asks (review 14.11).
+  if (ask.any_command && name === 'apps' && args?.action === 'act') return { cat: 'any_command', fragment: '' };
   if (ask.any_command && text !== null) return { cat: 'any_command', fragment: '' };
   return { cat: null, fragment: '' };
 }
@@ -256,6 +258,7 @@ const short = (s, n = 180) => { s = String(s ?? ''); return s.length > n ? `${s.
 export function detail(name, args = {}, fragment = '', max = 140) {
   const a = args || {};
   const t = name === 'software' ? `${a.action === 'upgrade' ? 'Update' : 'Install'}: ${a.id || 'all programs'}`
+    : name === 'apps' ? `${a.window || 'Program window'}: ${a.kind} ${a.target}${typeof a.text === 'string' ? ` "${a.text}"` : ''}`
     : a.source && a.destination ? `${a.source}  →  ${a.destination}`
     : commandOf(name, a) ?? a.path ?? a.file_path ?? JSON.stringify(a);
   return clip(String(t ?? ''), fragment, max);

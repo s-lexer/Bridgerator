@@ -18,7 +18,7 @@ import { SETTINGS_TOOL_DEF, validateSettings, widens, describe, DEFAULTS, LINE_L
 import { shorten } from './tool-text.mjs';
 import { parseDelete, VERBS as DELETE_VERBS, recycle as recycleOnPc, purgeFromBin } from './recycle.mjs';
 import { createSnapshots, changedPaths, undoGroups, SNAP_DEFAULTS, UNDO_TOOL_DEF } from './undo.mjs';
-import { createFuse, wantAwake, FUSE_DEFAULTS } from './guard.mjs';
+import { createFuse, wantAwake, FUSE_DEFAULTS, countFiles } from './guard.mjs';
 import { createQueue, queueTool, stalledItems, QUEUE_TOOL_DEFS, QUEUE_TOOL_NAMES } from './queue.mjs';
 import { createRecent, outcomeOf } from './recent.mjs';
 import { readSettingsStrict, setIni, writeAtomic, CATEGORIES, findMatch, clip } from './confirm.mjs';
@@ -44,6 +44,7 @@ const RECONNECT_MS = 5000;
 const SILENT_MS = 75000;
 const VERSION = createRequire(import.meta.url)('../package.json').version;
 const STDERR_LINES = 20;
+let updateRunAt = 0; // the last installer run started by rpc update (missing in 1.1.18: every Update threw, lab 14.11)
 export const MAX_CALLS = 8;
 /** At most `max` at once; others wait up to `waitMs` → slot() resolves true (go) or false (busy). */
 export function createLimiter(max, waitMs) {
@@ -459,7 +460,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
     const del = name === 'start_process' && cfg.recycleBin !== false && typeof args?.command === 'string' && !namesBlocked(args.command) ? parseDelete(args.command, engineDir) : null;
     // Under the per-path lock too: snapshot → recycle → commit can't interleave with a call on the same path.
     if (del) return locked(del.targets.map((p) => p.toLowerCase()), () => deleteToBin(del, args, planned));
-    const mass = name === 'move_file' ? 1 : (name === 'start_process' || name === 'interact_with_process') && findMatch(name, args, { delete: true }).cat === 'delete' ? 1 : 0;
+    const mass = name === 'move_file' ? (fuseCfg().enabled ? countFiles([String(args?.source ?? '')], fuseCfg().limit + 1) : 1) : (name === 'start_process' || name === 'interact_with_process') && findMatch(name, args, { delete: true }).cat === 'delete' ? 1 : 0;
     if (mass && !planned) { const f = fuseCheck(mass); if (f) return f; }
     // Snapshot → engine call → commit as one step per path: a parallel call on the same file waits,
     // so neither records the other's result as its own "after".
@@ -486,7 +487,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
 
   // --- Recycle Bin, mass-action fuse, Undo (LOGIC: critical-logic/bridge.md) ---------------------
   const fuse = createFuse();
-  let fuseAsking = false, inFlight = 0, lastCall = 0, wasPaused = false;
+  let fuseAsking = false, fuseAllowUntil = 0, inFlight = 0, lastCall = 0, wasPaused = false;
   // One notice per stalled "doing" item (id + updatedAt), on unless the person turned it off.
   const stalledWarned = new Set(), started = Date.now();
   if (queue) setInterval(() => {
@@ -502,7 +503,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
   /** n more deletions / moves: over the limit → pause + question on the PC; → the result to return, or null. */
   function fuseCheck(n) {
     const f = fuseCfg();
-    if (!f.enabled) return null;
+    if (!f.enabled || Date.now() < fuseAllowUntil) return null;
     const total = fuse.take(n, f.limit);
     if (!total) return null;
     log(`[bridgerator] mass-action fuse: ${total} deletions / moves within a minute (limit ${f.limit}) — paused`);
@@ -510,7 +511,8 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
     if (!fuseAsking) {
       fuseAsking = true;
       Promise.resolve(ask({ head: `ChatGPT deleted or moved ${total} files in a minute`, text: 'Bridgerator paused itself. Continue? No answer = it stays paused.', buttons: [['allow', 'Continue', ''], ['deny', 'Keep paused', 'deny']], secs: 300, auto: 'closes', ...popup() }))
-        .then((k) => { if (k === 'allow') { fuse.reset(); setPaused(false); } }, (e) => log(`[bridgerator] fuse question failed: ${e?.message || e}`))
+        // Continue = the person allows this burst: no fuse for a minute (else one big folder could never pass, review 14.11).
+        .then((k) => { if (k === 'allow') { fuse.reset(); fuseAllowUntil = Date.now() + 60000; setPaused(false); } }, (e) => log(`[bridgerator] fuse question failed: ${e?.message || e}`))
         .finally(() => { fuseAsking = false; });
     }
     return { content: [{ type: 'text', text: `Paused: more than ${f.limit} files were deleted or moved within a minute. Bridgerator asked the person on the PC whether to continue; wait for them.` }], isError: true, paused: true };
@@ -551,7 +553,7 @@ export async function startEngine(cfg, log = console.log, { ask: askArg, recycle
   async function deleteToBin(del, args, planned = false) {
     for (const p of del.targets) { const why = policy.writable(p); if (why) return { content: [{ type: 'text', text: why }], isError: true, refused: true }; }
     // Listed in a plan the person approved: not counted by the fuse (like the engine path).
-    const f = planned ? null : fuseCheck(del.targets.length);
+    const f = planned || !fuseCfg().enabled ? null : fuseCheck(countFiles(del.targets, fuseCfg().limit + 1));
     if (f) return f;
     const pend = snapshots ? await snapshots.capture('delete', del.targets.map((p) => ({ path: p, role: 'delete' })), { task: currentTask(), label: String(args.command).slice(0, 300) }).catch((e) => { log(`[bridgerator] snapshot skipped: ${e.message}`); return null; }) : null;
     const res = await recycle(del.targets, del.skip ? { skip: del.skip } : undefined);
